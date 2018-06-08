@@ -3,9 +3,11 @@
 Avorion mod to allow the user to automatically research items saving lots of clicks
 
 Before:
+
 ![](https://i.imgur.com/2wXhc5l.png)
 
 After:
+
 ![](https://i.imgur.com/icmnhPe.png)
 
 ## Features
