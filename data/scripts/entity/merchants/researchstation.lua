@@ -18,6 +18,29 @@ local button
 local autoButton
 local raritySelection
 local systemSelection
+
+local systemTypeNames = {
+  "All",
+  "Battery Upgrade",
+  "Cargo Upgrade",
+  "Energy To Shield Converter",
+  "Engine Upgrade",
+  "Generator Upgrade",
+  "Hyperspace Upgrade",
+  "Mining System",
+  "Object Detector",
+  "Radar Upgrade",
+  "Scanner Upgrade",
+  "Shield Booster",
+  "Shield Reinforcer",
+  "A-TCS",
+  "C-TCS",
+  "M-TCS",
+  "Technology Fragment",
+  "Tractor Beam",
+  "Trading System",
+  "Velocity Security"
+}
 -- END DRACONIAN
 
 function initialize()
@@ -112,26 +135,9 @@ function initUI()
     systemSelection.height = 30
     autoSplitter:placeElementTopRight(systemSelection)
 
-    systemSelection:addEntry("All"%_t)
-    systemSelection:addEntry("Battery Upgrade"%_t)
-    systemSelection:addEntry("Cargo Upgrade"%_t)
-    systemSelection:addEntry("Energy To Shield Converter"%_t)
-    systemSelection:addEntry("Engine Upgrade"%_t)
-    systemSelection:addEntry("Generator Upgrade"%_t)
-    systemSelection:addEntry("Hyperspace Upgrade"%_t)
-    systemSelection:addEntry("Mining System"%_t)
-    systemSelection:addEntry("Object Detector"%_t)
-    systemSelection:addEntry("Radar Upgrade"%_t)
-    systemSelection:addEntry("Scanner Upgrade"%_t)
-    systemSelection:addEntry("Shield Booster"%_t)
-    systemSelection:addEntry("Shield Reinforcer"%_t)
-    systemSelection:addEntry("A-TCS"%_t)
-    systemSelection:addEntry("C-TCS"%_t)
-    systemSelection:addEntry("M-TCS"%_t)
-    systemSelection:addEntry("Technology Fragment"%_t)
-    systemSelection:addEntry("Tractor Beam"%_t)
-    systemSelection:addEntry("Trading System"%_t)
-    systemSelection:addEntry("Velocity Security"%_t)
+    for i = 1, #systemTypeNames do
+        systemSelection:addEntry(systemTypeNames[i]%_t)
+    end
 
     autoButton = window:createButton(Rect(), "Auto Research"%_t, "onStartAutoResearch")
     autoButton.width = 200
@@ -496,7 +502,7 @@ function getUIRarity()
 end
 
 function getUISystems()
-    return systemSelection.selectedEntry
+    return systemSelection.selectedIndex
 end
 
 function onStartAutoResearch()
@@ -521,6 +527,33 @@ function autoResearchComplete()
 end
 
 function autoResearch(maxRarity, systemType)
+    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
+    if not buyer then
+        if player then
+            invokeClientFunction(player, "autoResearchComplete")
+        end
+        return
+    end
+
+    local station = Entity()
+
+    local errors = {}
+    errors[EntityType.Station] = "You must be docked to the station to research items."%_T
+    errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
+    if not CheckPlayerDocked(player, station, errors) then
+        if player then
+            invokeClientFunction(player, "autoResearchComplete")
+        end
+        return
+    end
+    
+    -- Get System Upgrade type name from selectedIndex
+    if systemType >= 0 and systemType < #systemTypeNames then
+        systemType = systemTypeNames[systemType+1]
+    else
+        systemType = systemTypeNames[1]
+    end
+
     -- inventory:clear()
     -- for i = 1, 50 do
     --     inventory:addEmpty()
@@ -539,30 +572,38 @@ function autoResearch(maxRarity, systemType)
     -- item.item.itemType == InventoryItemType.SystemUpgrade
     -- getItemsByType(InventoryItemType type)
 
-    local items = {}
-    local itemIndices = {}
-    local player
+    local items, itemIndices, player
     local min = 5
     local max = 5
 
-    items, itemIndices, player = getIndices(RarityType.Petty, min, max, systemType)
-    if (#items < min) then
-        --print ("Need to check common", systemType)
-        items, itemIndices = getIndices(RarityType.Common, min, max, systemType)
-    end
-    if (#items < min and maxRarity >= RarityType.Uncommon) then
-        --print ("Need to check uncommon", systemType)
-        items, itemIndices = getIndices(RarityType.Uncommon, min, max, systemType)
-    end
-    if (#items < min and maxRarity >= RarityType.Rare) then
-        --print ("Need to check rare", systemType)
-        items, itemIndices = getIndices(RarityType.Rare, min, max, systemType)
-    end
-    if (#items < min and maxRarity >= RarityType.Exceptional) then
-        --print ("Need to check exceptional", systemType)
-        items, itemIndices = getIndices(RarityType.Exceptional, min, max, systemType)
+    while true do
+        items, itemIndices, player = getIndices(RarityType.Petty, min, max, systemType)
+        if (#items < min) then
+            --print ("Need to check common", systemType)
+            items, itemIndices = getIndices(RarityType.Common, min, max, systemType)
+        end
+        if (#items < min and maxRarity >= RarityType.Uncommon) then
+            --print ("Need to check uncommon", systemType)
+            items, itemIndices = getIndices(RarityType.Uncommon, min, max, systemType)
+        end
+        if (#items < min and maxRarity >= RarityType.Rare) then
+            --print ("Need to check rare", systemType)
+            items, itemIndices = getIndices(RarityType.Rare, min, max, systemType)
+        end
+        if (#items < min and maxRarity >= RarityType.Exceptional) then
+            --print ("Need to check exceptional", systemType)
+            items, itemIndices = getIndices(RarityType.Exceptional, min, max, systemType)
+        end
+        
+        if (#items >= min) then
+            research(itemIndices)
+        else
+            break
+        end
     end
 
+    --print ("Only have", #items, "items")
+    invokeClientFunction(player, "autoResearchComplete")
 
     --local common = getSystemsByRarity(RarityType.Common)
     --local uncommon = getSystemsByRarity(RarityType.Uncommon)
@@ -576,16 +617,6 @@ function autoResearch(maxRarity, systemType)
     --         print (i, tostring(inventoryItem.item.name))
     --     end
     -- end
-
-    if (#items >= min) then
-        research(itemIndices)
-        -- Lets loop it!
-        -- We want to make sure the inventory index doesn't pick the wrong item so thats why we don't do it in bulk oringinally
-        autoResearch(maxRarity, systemType)
-    else
-        --print ("Only have", #items, "items")
-        invokeClientFunction(player, "autoResearchComplete")
-    end
 end
 
 function getIndices(rarity, min, max, systemType)
