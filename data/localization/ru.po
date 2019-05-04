@@ -1,0 +1,6 @@
+# ========== mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua ==========
+#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+msgid "Auto Research"
+msgstr "Авто-изучение"
+
+
