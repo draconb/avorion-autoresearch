@@ -1,4 +1,5 @@
 local Azimuth = include("azimuthlib-basic")
+local AutoResearchIntegration = include("AutoResearchIntegration")
 if not Azimuth then return end
 
 local config
@@ -86,6 +87,10 @@ function initialize()
 
         -- add custom systems
         local systemNameList = {}
+        for k, v in pairs(AutoResearchIntegration) do
+            systemTypeScripts[#systemTypeScripts+1] = k
+            systemNameList[#systemNameList+1] = v
+        end
         for k, v in pairs(config.CustomSystems) do
             systemTypeScripts[#systemTypeScripts+1] = k
             systemNameList[#systemNameList+1] = v
