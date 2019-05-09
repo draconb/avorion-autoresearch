@@ -3,4 +3,10 @@
 msgid "Auto Research"
 msgstr ""
 
+#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+msgid "Min amount"
+msgstr ""
 
+#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+msgid "Max amount"
+msgstr ""

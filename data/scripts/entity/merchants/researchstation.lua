@@ -3,9 +3,7 @@ local AutoResearchIntegration = include("AutoResearchIntegration")
 if not Azimuth then return end
 
 local config
-local autoButton
-local raritySelection
-local systemSelection
+local autoButton, raritySelection, systemSelection, minAmountComboBox, maxAmountComboBox
 local settingsReceived = false
 
 local systemTypeNames = {
@@ -146,6 +144,7 @@ function initUI()
     local rect = vsplit.right
     rect.width = 70
     rect.height = 70
+    rect.position = rect.position - vec2(80, 0)
     results = window:createSelection(rect, 1)
     results.entriesSelectable = 0
     results.dropIntoEnabled = 0
@@ -170,6 +169,7 @@ function initUI()
     raritySelection:addEntry("Uncommon"%_t)
     raritySelection:addEntry("Rare"%_t)
     raritySelection:addEntry("Exceptional"%_t)
+    raritySelection:addEntry("Exotic"%_t)
 
     systemSelection = window:createComboBox(Rect(), "")
     systemSelection.width = 250
@@ -182,6 +182,38 @@ function initUI()
             systemSelection:addEntry(systemTypeNames[i])
         end
     end
+    
+    minAmountComboBox = window:createComboBox(Rect(), "onMinAmountChanged")
+    minAmountComboBox.width = 50
+    minAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(minAmountComboBox)
+    minAmountComboBox.position = minAmountComboBox.position + vec2(0, 30)
+    minAmountComboBox:addEntry(5)
+    minAmountComboBox:addEntry(4)
+    minAmountComboBox:addEntry(3)
+    
+    local amountLabel = window:createLabel(Rect(), "Min amount"%_t, 13)
+    amountLabel.width = 100
+    amountLabel.height = 25
+    autoSplitter:placeElementTopRight(amountLabel)
+    amountLabel.position = amountLabel.position + vec2(-60, 30)
+    amountLabel:setRightAligned()
+    
+    maxAmountComboBox = window:createComboBox(Rect(), "onMaxAmountChanged")
+    maxAmountComboBox.width = 50
+    maxAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(maxAmountComboBox)
+    maxAmountComboBox.position = maxAmountComboBox.position + vec2(0, 60)
+    maxAmountComboBox:addEntry(5)
+    maxAmountComboBox:addEntry(4)
+    maxAmountComboBox:addEntry(3)
+    
+    amountLabel = window:createLabel(Rect(), "Max amount"%_t, 13)
+    amountLabel.width = 100
+    amountLabel.height = 25
+    autoSplitter:placeElementTopRight(amountLabel)
+    amountLabel.position = amountLabel.position + vec2(-60, 60)
+    amountLabel:setRightAligned()
 
     autoButton = window:createButton(Rect(), "Auto Research"%_t, "onStartAutoResearch")
     autoButton.width = 200
@@ -215,6 +247,22 @@ function receiveAutoResearchSettings(systems)
     settingsReceived = true
 end
 
+function onMinAmountChanged()
+    local minAmount = tonumber(minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        maxAmountComboBox.selectedIndex = minAmountComboBox.selectedIndex
+    end
+end
+
+function onMaxAmountChanged()
+    local minAmount = tonumber(minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        minAmountComboBox.selectedIndex = maxAmountComboBox.selectedIndex
+    end
+end
+
 function onStartAutoResearch()
     autoButton.active = false
     -- get system index
@@ -222,17 +270,23 @@ function onStartAutoResearch()
     if systemSelection.selectedIndex > 0 then
         systemType = systemTypeNameIndexes[systemSelection.selectedEntry]
     end
-    invokeServerFunction("autoResearch", Rarity(raritySelection.selectedIndex).value, systemType)
+    local minAmount = tonumber(minAmountComboBox.selectedEntry) or 5
+    local maxAmount = tonumber(maxAmountComboBox.selectedEntry) or 5
+    invokeServerFunction("autoResearch", Rarity(raritySelection.selectedIndex).value, systemType, minAmount, maxAmount)
 end
 
 function autoResearchComplete()
     autoButton.active = true
 end
 
-function autoResearch(maxRarity, systemType)
+function autoResearch(maxRarity, systemType, minAmount, maxAmount)
     maxRarity = tonumber(maxRarity)
     systemType = tonumber(systemType)
     if anynils(maxRarity, systemType) then return end
+    minAmount = tonumber(minAmount) or 5
+    maxAmount = tonumber(maxAmount) or 5
+    minAmount = math.min(minAmount, maxAmount)
+    maxAmount = math.max(minAmount, maxAmount)
     
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
     if not buyer then
@@ -263,25 +317,26 @@ function autoResearch(maxRarity, systemType)
     end
 
     local items, itemIndices, player
-    local min = 5
-    local max = 5
 
     while true do
-        items, itemIndices, player = getIndices(RarityType.Petty, min, max, systemType)
-        if #items < min then
-            items, itemIndices = getIndices(RarityType.Common, min, max, systemType)
+        items, itemIndices, player = getIndices(RarityType.Petty, minAmount, maxAmount, systemType)
+        if #items < minAmount then
+            items, itemIndices = getIndices(RarityType.Common, minAmount, maxAmount, systemType)
         end
-        if #items < min and maxRarity >= RarityType.Uncommon then
-            items, itemIndices = getIndices(RarityType.Uncommon, min, max, systemType)
+        if #items < minAmount and maxRarity >= RarityType.Uncommon then
+            items, itemIndices = getIndices(RarityType.Uncommon, minAmount, maxAmount, systemType)
         end
-        if #items < min and maxRarity >= RarityType.Rare then
-            items, itemIndices = getIndices(RarityType.Rare, min, max, systemType)
+        if #items < minAmount and maxRarity >= RarityType.Rare then
+            items, itemIndices = getIndices(RarityType.Rare, minAmount, maxAmount, systemType)
         end
-        if #items < min and maxRarity >= RarityType.Exceptional then
-            items, itemIndices = getIndices(RarityType.Exceptional, min, max, systemType)
+        if #items < minAmount and maxRarity >= RarityType.Exceptional then
+            items, itemIndices = getIndices(RarityType.Exceptional, minAmount, maxAmount, systemType)
+        end
+        if #items < minAmount and maxRarity >= RarityType.Exotic then
+            items, itemIndices = getIndices(RarityType.Exotic, minAmount, maxAmount, systemType)
         end
         
-        if #items >= min then
+        if #items >= minAmount then
             research(itemIndices)
         else
             break
