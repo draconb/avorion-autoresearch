@@ -39,8 +39,8 @@ meta =
     --      {id = "OptionalMod", min = "0.2", optional = true}, -- we support OptionalMod optionally, starting at version 0.2
     -- },
     dependencies = {
-        {id = "1722652757", min = "1.1.3"},
-        {id = "Avorion", min = "0.22", max = "0.22"}
+        {id = "1722652757", min = "1.2"},
+        {id = "Avorion", min = "0.23", max = "0.23"}
     },
 
     -- Set to true if the mod only has to run on the server. Clients will get notified that the mod is running on the server, but they won't download it to themselves
