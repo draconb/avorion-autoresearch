@@ -1,12 +1,16 @@
 local Azimuth = include("azimuthlib-basic")
 local AutoResearchIntegration = include("AutoResearchIntegration")
-if not Azimuth then return end
 
-local config
-local autoButton, raritySelection, systemSelection, minAmountComboBox, maxAmountComboBox
-local settingsReceived = false
+-- all local variables are outside of 'onClient/onServer' blocks to make them accessible for other mods
+local autoResearch_autoButton, autoResearch_raritySelection, autoResearch_systemSelection, autoResearch_minAmountComboBox, autoResearch_maxAmountComboBox -- client UI
+local autoResearch_settingsReceived, autoResearch_systemTypeNames, autoResearch_systemTypeNameIndexes -- client
+local AutoResearchConfig, autoResearch_systemTypeScripts -- server
+local autoResearch_initialize -- extended functions
 
-local systemTypeNames = {
+if onClient() then
+
+
+autoResearch_systemTypeNames = {
   "Turret Control System A-TCS-${num}"%_t % {num = "X "},
   "Battery Upgrade"%_t,
   "T1M-LRD-Tech Cargo Upgrade MK ${mark}"%_t % {mark = "X "},
@@ -28,79 +32,16 @@ local systemTypeNames = {
   "Velocity Security Control Bypass"%_t,
   "Xsotan Technology Fragment"%_t
 }
-local systemTypeNameIndexes = {}
-local systemTypeScripts = {
-  "arbitrarytcs",
-  "batterybooster",
-  "cargoextension",
-  "civiltcs",
-  "energybooster",
-  "energytoshieldconverter",
-  "enginebooster",
-  "hyperspacebooster",
-  --"lootrangebooster",
-  "militarytcs",
-  "miningsystem",
-  "radarbooster",
-  "scannerbooster",
-  "shieldbooster",
-  "shieldimpenetrator",
-  "tradingoverview",
-  "transportersoftware",
-  "valuablesdetector",
-  "velocitybypass",
-  "wormholeopener"
-}
+autoResearch_systemTypeNameIndexes = {}
 
-
-local old_initialize = initialize
+autoResearch_initialize = initialize
 function initialize()
-    old_initialize()
-    if onServer() then -- load config
-        -- load custom system names and script file names
-        local configOptions = {
-          _version = { default = "1.1", comment = "Config version. Don't touch." },
-          CustomSystems = { default = {
-            -- using Tractor Beam Upgrade as an example
-            lootrangebooster = { name = "RCN-00 Tractor Beam Upgrade MK ${mark}", extra = { mark = "X " } }
-          }, comment = 'Here you can add custom systems. Format: "systemfilename" = { name = "System Display Name MK-${mark}", extra = { mark = "X" } }. "Extra" table holds additional name variables - just replace them all with "X ".' }
-        }
-        local isModified
-        config, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
-        -- check 'CustomSystems'
-        local t
-        for k, v in pairs(config.CustomSystems) do
-            if type(v) ~= "table" or not v.name then
-                config.CustomSystems[k] = nil
-                isModified = true
-            elseif v.extra ~= nil and type(v.extra) ~= "table" then
-                config.CustomSystems[k].extra = nil
-                isModified = true
-            end
-        end
-        -- resave if necessary
-        if isModified then
-            Azimuth.saveConfig("AutoResearch", config, configOptions)
-        end
+    autoResearch_initialize()
 
-        -- add custom systems
-        local systemNameList = {}
-        for k, v in pairs(AutoResearchIntegration) do
-            systemTypeScripts[#systemTypeScripts+1] = k
-            systemNameList[#systemNameList+1] = v
-        end
-        for k, v in pairs(config.CustomSystems) do
-            systemTypeScripts[#systemTypeScripts+1] = k
-            systemNameList[#systemNameList+1] = v
-        end
-        -- clients only need display names
-        config.CustomSystems = systemNameList
-    else -- CLIENT
-        invokeServerFunction("sendAutoResearchSettings")
-    end
+    invokeServerFunction("autoResearch_sendSettings")
 end
 
-function initUI()
+function initUI() -- overridden
     local res = getResolution()
     local size = vec2(800, 600)
 
@@ -160,37 +101,37 @@ function initUI()
     organizer:placeElementBottomLeft(button)
 
     local autoSplitter = UIHorizontalSplitter(vsplit.right, 5, 5, 0.5)
-    raritySelection = window:createComboBox(Rect(), "")
-    raritySelection.width = 150
-    raritySelection.height = 25
-    autoSplitter:placeElementTopLeft(raritySelection)
+    autoResearch_raritySelection = window:createComboBox(Rect(), "")
+    autoResearch_raritySelection.width = 150
+    autoResearch_raritySelection.height = 25
+    autoSplitter:placeElementTopLeft(autoResearch_raritySelection)
 
-    raritySelection:addEntry("Common"%_t)
-    raritySelection:addEntry("Uncommon"%_t)
-    raritySelection:addEntry("Rare"%_t)
-    raritySelection:addEntry("Exceptional"%_t)
-    raritySelection:addEntry("Exotic"%_t)
+    autoResearch_raritySelection:addEntry("Common"%_t)
+    autoResearch_raritySelection:addEntry("Uncommon"%_t)
+    autoResearch_raritySelection:addEntry("Rare"%_t)
+    autoResearch_raritySelection:addEntry("Exceptional"%_t)
+    autoResearch_raritySelection:addEntry("Exotic"%_t)
 
-    systemSelection = window:createComboBox(Rect(), "")
-    systemSelection.width = 250
-    systemSelection.height = 25
-    autoSplitter:placeElementTopRight(systemSelection)
+    autoResearch_systemSelection = window:createComboBox(Rect(), "")
+    autoResearch_systemSelection.width = 250
+    autoResearch_systemSelection.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_systemSelection)
     
-    if settingsReceived then -- if settings were already received
-        systemSelection:addEntry("All"%_t)
-        for i = 1, #systemTypeNames do
-            systemSelection:addEntry(systemTypeNames[i])
+    if autoResearch_settingsReceived then -- if settings were already received
+        autoResearch_systemSelection:addEntry("All"%_t)
+        for i = 1, #autoResearch_systemTypeNames do
+            autoResearch_systemSelection:addEntry(autoResearch_systemTypeNames[i])
         end
     end
     
-    minAmountComboBox = window:createComboBox(Rect(), "onMinAmountChanged")
-    minAmountComboBox.width = 50
-    minAmountComboBox.height = 25
-    autoSplitter:placeElementTopRight(minAmountComboBox)
-    minAmountComboBox.position = minAmountComboBox.position + vec2(0, 30)
-    minAmountComboBox:addEntry(5)
-    minAmountComboBox:addEntry(4)
-    minAmountComboBox:addEntry(3)
+    autoResearch_minAmountComboBox = window:createComboBox(Rect(), "autoResearch_onMinAmountChanged")
+    autoResearch_minAmountComboBox.width = 50
+    autoResearch_minAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_minAmountComboBox)
+    autoResearch_minAmountComboBox.position = autoResearch_minAmountComboBox.position + vec2(0, 30)
+    autoResearch_minAmountComboBox:addEntry(5)
+    autoResearch_minAmountComboBox:addEntry(4)
+    autoResearch_minAmountComboBox:addEntry(3)
     
     local amountLabel = window:createLabel(Rect(), "Min amount"%_t, 13)
     amountLabel.width = 100
@@ -199,14 +140,14 @@ function initUI()
     amountLabel.position = amountLabel.position + vec2(-60, 30)
     amountLabel:setRightAligned()
     
-    maxAmountComboBox = window:createComboBox(Rect(), "onMaxAmountChanged")
-    maxAmountComboBox.width = 50
-    maxAmountComboBox.height = 25
-    autoSplitter:placeElementTopRight(maxAmountComboBox)
-    maxAmountComboBox.position = maxAmountComboBox.position + vec2(0, 60)
-    maxAmountComboBox:addEntry(5)
-    maxAmountComboBox:addEntry(4)
-    maxAmountComboBox:addEntry(3)
+    autoResearch_maxAmountComboBox = window:createComboBox(Rect(), "autoResearch_onMaxAmountChanged")
+    autoResearch_maxAmountComboBox.width = 50
+    autoResearch_maxAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_maxAmountComboBox)
+    autoResearch_maxAmountComboBox.position = autoResearch_maxAmountComboBox.position + vec2(0, 60)
+    autoResearch_maxAmountComboBox:addEntry(5)
+    autoResearch_maxAmountComboBox:addEntry(4)
+    autoResearch_maxAmountComboBox:addEntry(3)
     
     amountLabel = window:createLabel(Rect(), "Max amount"%_t, 13)
     amountLabel.width = 100
@@ -215,143 +156,141 @@ function initUI()
     amountLabel.position = amountLabel.position + vec2(-60, 60)
     amountLabel:setRightAligned()
 
-    autoButton = window:createButton(Rect(), "Auto Research"%_t, "onStartAutoResearch")
-    autoButton.width = 200
-    autoButton.height = 30
-    autoSplitter:placeElementBottomRight(autoButton)
+    autoResearch_autoButton = window:createButton(Rect(), "Auto Research"%_t, "autoResearch_onStartAutoResearch")
+    autoResearch_autoButton.width = 200
+    autoResearch_autoButton.height = 30
+    autoSplitter:placeElementBottomRight(autoResearch_autoButton)
 end
 
-function sendAutoResearchSettings()
-    invokeClientFunction(Player(callingPlayer), "receiveAutoResearchSettings", config.CustomSystems)
+function autoResearch_onMinAmountChanged()
+    local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        autoResearch_maxAmountComboBox.selectedIndex = autoResearch_minAmountComboBox.selectedIndex
+    end
 end
-callable(nil, "sendAutoResearchSettings")
 
-function receiveAutoResearchSettings(systems)
+function autoResearch_onMaxAmountChanged()
+    local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        autoResearch_minAmountComboBox.selectedIndex = autoResearch_maxAmountComboBox.selectedIndex
+    end
+end
+
+function autoResearch_onStartAutoResearch()
+    autoResearch_autoButton.active = false
+    -- get system index
+    local systemType = 0
+    if autoResearch_systemSelection.selectedIndex > 0 then
+        systemType = autoResearch_systemTypeNameIndexes[autoResearch_systemSelection.selectedEntry]
+    end
+    local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry) or 5
+    local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry) or 5
+    invokeServerFunction("autoResearch_autoResearch", Rarity(autoResearch_raritySelection.selectedIndex).value, systemType, minAmount, maxAmount)
+end
+
+function autoResearch_autoResearchComplete()
+    autoResearch_autoButton.active = true
+end
+
+function autoResearch_receiveSettings(systems)
     local system
     for i = 1, #systems do
         system = systems[i]
-        systemTypeNames[#systemTypeNames+1] = (system.name%_t) % (system.extra or {})
+        autoResearch_systemTypeNames[#autoResearch_systemTypeNames+1] = (system.name%_t) % (system.extra or {})
     end
     -- and now sort system names
-    for i = 1, #systemTypeNames do
-        systemTypeNameIndexes[systemTypeNames[i]] = i
+    for i = 1, #autoResearch_systemTypeNames do
+        autoResearch_systemTypeNameIndexes[autoResearch_systemTypeNames[i]] = i
     end
-    table.sort(systemTypeNames)
+    table.sort(autoResearch_systemTypeNames)
     -- and add them to the combo box
-    if systemSelection then
-        systemSelection:addEntry("All"%_t)
-        for i = 1, #systemTypeNames do
-            systemSelection:addEntry(systemTypeNames[i])
+    if autoResearch_systemSelection then
+        autoResearch_systemSelection:addEntry("All"%_t)
+        for i = 1, #autoResearch_systemTypeNames do
+            autoResearch_systemSelection:addEntry(autoResearch_systemTypeNames[i])
         end
     end
-    settingsReceived = true
+    autoResearch_settingsReceived = true
 end
 
-function onMinAmountChanged()
-    local minAmount = tonumber(minAmountComboBox.selectedEntry)
-    local maxAmount = tonumber(maxAmountComboBox.selectedEntry)
-    if minAmount > maxAmount then
-        maxAmountComboBox.selectedIndex = minAmountComboBox.selectedIndex
+
+else -- onServer
+
+
+autoResearch_systemTypeScripts = {
+  "arbitrarytcs",
+  "batterybooster",
+  "cargoextension",
+  "civiltcs",
+  "energybooster",
+  "energytoshieldconverter",
+  "enginebooster",
+  "hyperspacebooster",
+  --"lootrangebooster",
+  "militarytcs",
+  "miningsystem",
+  "radarbooster",
+  "scannerbooster",
+  "shieldbooster",
+  "shieldimpenetrator",
+  "tradingoverview",
+  "transportersoftware",
+  "valuablesdetector",
+  "velocitybypass",
+  "wormholeopener"
+}
+
+autoResearch_initialize = initialize
+function initialize()
+    autoResearch_initialize()
+
+    local configOptions = {
+      _version = { default = "1.1", comment = "Config version. Don't touch." },
+      CustomSystems = {
+        default = {
+          lootrangebooster = { name = "RCN-00 Tractor Beam Upgrade MK ${mark}", extra = { mark = "X " } } -- using Tractor Beam Upgrade as an example
+        },
+        comment = 'Here you can add custom systems. Format: "systemfilename" = { name = "System Display Name MK-${mark}", extra = { mark = "X" } }. "Extra" table holds additional name variables - just replace them all with "X ".'
+      }
+    }
+    local isModified
+    AutoResearchConfig, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
+    -- check 'CustomSystems'
+    local t
+    for k, v in pairs(AutoResearchConfig.CustomSystems) do
+        if type(v) ~= "table" or not v.name then
+            AutoResearchConfig.CustomSystems[k] = nil
+            isModified = true
+        elseif v.extra ~= nil and type(v.extra) ~= "table" then
+            AutoResearchConfig.CustomSystems[k].extra = nil
+            isModified = true
+        end
     end
+    if isModified then
+        Azimuth.saveConfig("AutoResearch", AutoResearchConfig, configOptions)
+    end
+
+    -- add custom systems
+    local systemNameList = {}
+    for k, v in pairs(AutoResearchIntegration) do
+        autoResearch_systemTypeScripts[#autoResearch_systemTypeScripts+1] = k
+        systemNameList[#systemNameList+1] = v
+    end
+    for k, v in pairs(AutoResearchConfig.CustomSystems) do
+        autoResearch_systemTypeScripts[#autoResearch_systemTypeScripts+1] = k
+        systemNameList[#systemNameList+1] = v
+    end
+    -- clients only need display names
+    AutoResearchConfig.CustomSystems = systemNameList
 end
 
-function onMaxAmountChanged()
-    local minAmount = tonumber(minAmountComboBox.selectedEntry)
-    local maxAmount = tonumber(maxAmountComboBox.selectedEntry)
-    if minAmount > maxAmount then
-        minAmountComboBox.selectedIndex = maxAmountComboBox.selectedIndex
-    end
-end
-
-function onStartAutoResearch()
-    autoButton.active = false
-    -- get system index
-    local systemType = 0
-    if systemSelection.selectedIndex > 0 then
-        systemType = systemTypeNameIndexes[systemSelection.selectedEntry]
-    end
-    local minAmount = tonumber(minAmountComboBox.selectedEntry) or 5
-    local maxAmount = tonumber(maxAmountComboBox.selectedEntry) or 5
-    invokeServerFunction("autoResearch", Rarity(raritySelection.selectedIndex).value, systemType, minAmount, maxAmount)
-end
-
-function autoResearchComplete()
-    autoButton.active = true
-end
-
-function autoResearch(maxRarity, systemType, minAmount, maxAmount)
-    maxRarity = tonumber(maxRarity)
-    systemType = tonumber(systemType)
-    if anynils(maxRarity, systemType) then return end
-    minAmount = tonumber(minAmount) or 5
-    maxAmount = tonumber(maxAmount) or 5
-    minAmount = math.min(minAmount, maxAmount)
-    maxAmount = math.max(minAmount, maxAmount)
-    
-    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
-    if not buyer then
-        if player then
-            invokeClientFunction(player, "autoResearchComplete")
-        end
-        return
-    end
-
-    local station = Entity()
-
-    local errors = {}
-    errors[EntityType.Station] = "You must be docked to the station to research items."%_T
-    errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
-    if not CheckPlayerDocked(player, station, errors) then
-        if player then
-            invokeClientFunction(player, "autoResearchComplete")
-        end
-        return
-    end
-    
-    -- Get System Upgrade script path from selectedIndex
-    if systemType == 0 then -- all
-        systemType = nil
-    else
-        systemType = systemTypeScripts[math.max(1, math.min(#systemTypeScripts, systemType))]
-        systemType = "data/scripts/systems/"..systemType..".lua"
-    end
-
-    local items, itemIndices, player
-
-    while true do
-        items, itemIndices, player = getIndices(RarityType.Petty, minAmount, maxAmount, systemType)
-        if #items < minAmount then
-            items, itemIndices = getIndices(RarityType.Common, minAmount, maxAmount, systemType)
-        end
-        if #items < minAmount and maxRarity >= RarityType.Uncommon then
-            items, itemIndices = getIndices(RarityType.Uncommon, minAmount, maxAmount, systemType)
-        end
-        if #items < minAmount and maxRarity >= RarityType.Rare then
-            items, itemIndices = getIndices(RarityType.Rare, minAmount, maxAmount, systemType)
-        end
-        if #items < minAmount and maxRarity >= RarityType.Exceptional then
-            items, itemIndices = getIndices(RarityType.Exceptional, minAmount, maxAmount, systemType)
-        end
-        if #items < minAmount and maxRarity >= RarityType.Exotic then
-            items, itemIndices = getIndices(RarityType.Exotic, minAmount, maxAmount, systemType)
-        end
-        
-        if #items >= minAmount then
-            research(itemIndices)
-        else
-            break
-        end
-    end
-
-    invokeClientFunction(player, "autoResearchComplete")
-end
-callable(nil, "autoResearch")
-
-function getIndices(rarity, min, max, systemType)
+function autoResearch_getIndices(rarity, min, max, systemType)
     local items = {}
     local itemIndices = {}
     local researchTime = false
-    local grouped, player = getSystemsByRarity(rarity, systemType)
+    local grouped, player = autoResearch_getSystemsByRarity(rarity, systemType)
 
     for g, group in pairs(grouped) do
         itemIndices = {}
@@ -376,7 +315,7 @@ function getIndices(rarity, min, max, systemType)
     return items, itemIndices, player
 end
 
-function getSystemsByRarity(rarityType, systemType)
+function autoResearch_getSystemsByRarity(rarityType, systemType)
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
     local inventory = buyer:getInventory()
     local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
@@ -396,4 +335,80 @@ function getSystemsByRarity(rarityType, systemType)
     end
 
     return grouped, player
+end
+
+function autoResearch_sendSettings()
+    invokeClientFunction(Player(callingPlayer), "autoResearch_receiveSettings", AutoResearchConfig.CustomSystems)
+end
+callable(nil, "autoResearch_sendSettings")
+
+function autoResearch_autoResearch(maxRarity, systemType, minAmount, maxAmount)
+    maxRarity = tonumber(maxRarity)
+    systemType = tonumber(systemType)
+    if anynils(maxRarity, systemType) then return end
+    minAmount = tonumber(minAmount) or 5
+    maxAmount = tonumber(maxAmount) or 5
+    minAmount = math.min(minAmount, maxAmount)
+    maxAmount = math.max(minAmount, maxAmount)
+    
+    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
+    if not buyer then
+        if player then
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        end
+        return
+    end
+
+    local station = Entity()
+
+    local errors = {}
+    errors[EntityType.Station] = "You must be docked to the station to research items."%_T
+    errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
+    if not CheckPlayerDocked(player, station, errors) then
+        if player then
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        end
+        return
+    end
+    
+    -- Get System Upgrade script path from selectedIndex
+    if systemType == 0 then -- all
+        systemType = nil
+    else
+        systemType = autoResearch_systemTypeScripts[math.max(1, math.min(#autoResearch_systemTypeScripts, systemType))]
+        systemType = "data/scripts/systems/"..systemType..".lua"
+    end
+
+    local items, itemIndices, player
+
+    while true do
+        items, itemIndices, player = autoResearch_getIndices(RarityType.Petty, minAmount, maxAmount, systemType)
+        if #items < minAmount then
+            items, itemIndices = autoResearch_getIndices(RarityType.Common, minAmount, maxAmount, systemType)
+        end
+        if #items < minAmount and maxRarity >= RarityType.Uncommon then
+            items, itemIndices = autoResearch_getIndices(RarityType.Uncommon, minAmount, maxAmount, systemType)
+        end
+        if #items < minAmount and maxRarity >= RarityType.Rare then
+            items, itemIndices = autoResearch_getIndices(RarityType.Rare, minAmount, maxAmount, systemType)
+        end
+        if #items < minAmount and maxRarity >= RarityType.Exceptional then
+            items, itemIndices = autoResearch_getIndices(RarityType.Exceptional, minAmount, maxAmount, systemType)
+        end
+        if #items < minAmount and maxRarity >= RarityType.Exotic then
+            items, itemIndices = autoResearch_getIndices(RarityType.Exotic, minAmount, maxAmount, systemType)
+        end
+        
+        if #items >= minAmount then
+            research(itemIndices)
+        else
+            break
+        end
+    end
+
+    invokeClientFunction(player, "autoResearch_autoResearchComplete")
+end
+callable(nil, "autoResearch_autoResearch")
+
+
 end
