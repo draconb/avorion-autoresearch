@@ -10,3 +10,7 @@ msgstr "Мин. кол-во"
 #: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
 msgid "Max amount"
 msgstr "Макс. кол-во"
+
+#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+msgid "Research Auto/Non-auto turrets separately"
+msgstr "Исследовать Авто/Не-авто турели отдельно"

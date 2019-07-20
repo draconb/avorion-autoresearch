@@ -10,3 +10,7 @@ msgstr ""
 #: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
 msgid "Max amount"
 msgstr ""
+
+#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+msgid "Research Auto/Non-auto turrets separately"
+msgstr ""
