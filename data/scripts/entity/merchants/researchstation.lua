@@ -422,17 +422,19 @@ function autoResearch_getTurretsByRarity(rarityType, turretType, materialType, i
     end
     local grouped = {}
 
-    local weaponType, materialValue
+    local weaponType, materialValue, groupKey
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite) then
             if isAutoFire == -1 or (isAutoFire == 0 and not inventoryItem.item.automatic) or (isAutoFire == 1 and inventoryItem.item.automatic) then
                 weaponType = WeaponTypes.getTypeOfItem(inventoryItem.item)
                 materialValue = inventoryItem.item.material.value
                 if (not turretType or weaponType == turretType) and (not materialType or materialValue <= materialType) then
-                    local existing = grouped[materialValue] -- group by material, no need to mix iron and avorion
+                    groupKey = materialValue.."_"..weaponType
+                    print("groupKey", groupKey)
+                    local existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
                     if existing == nil then
-                        grouped[materialValue] = {}
-                        existing = grouped[materialValue]
+                        grouped[groupKey] = {}
+                        existing = grouped[groupKey]
                     end
                     for j = 1, inventoryItem.amount do
                         existing[#existing+1] = { item = inventoryItem.item, index = i }
