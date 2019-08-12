@@ -34,8 +34,8 @@ autoResearch_systemTypeNames = {
 }
 autoResearch_systemTypeNameIndexes = {}
 
-autoResearch_initialize = initialize
-function initialize()
+autoResearch_initialize = ResearchStation.initialize
+function ResearchStation.initialize()
     autoResearch_initialize()
 
     autoResearch_turretTypeByName = {}
@@ -49,7 +49,7 @@ function initialize()
     invokeServerFunction("autoResearch_sendSettings")
 end
 
-function initUI() -- overridden
+function ResearchStation.initUI() -- overridden
     local res = getResolution()
     local size = vec2(800, 600)
 
@@ -121,7 +121,7 @@ function initUI() -- overridden
     autoResearch_systemSelection.width = 270
     autoResearch_systemSelection.height = 25
     autoSplitter:placeElementTopRight(autoResearch_systemSelection)
-    autoResearch_fillSystems()
+    ResearchStation.autoResearch_fillSystems()
 
     autoResearch_raritySelection = window:createComboBox(Rect(), "")
     autoResearch_raritySelection.width = 145
@@ -200,9 +200,9 @@ function initUI() -- overridden
     autoResearch_autoButton.position = autoResearch_autoButton.position + vec2(0, 20)
 end
 
-function autoResearch_onItemTypeChanged()
+function ResearchStation.autoResearch_onItemTypeChanged()
     if autoResearch_itemTypeSelection.selectedIndex == 0 then -- Systems
-        autoResearch_fillSystems()
+        ResearchStation.autoResearch_fillSystems()
         autoResearch_materialSelection.visible = false
         autoResearch_separateAutoCheckBox.visible = false
         separateAutoLabel.visible = false
@@ -218,7 +218,7 @@ function autoResearch_onItemTypeChanged()
     end
 end
 
-function autoResearch_onMinAmountChanged()
+function ResearchStation.autoResearch_onMinAmountChanged()
     local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
     local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
     if minAmount > maxAmount then
@@ -226,7 +226,7 @@ function autoResearch_onMinAmountChanged()
     end
 end
 
-function autoResearch_onMaxAmountChanged()
+function ResearchStation.autoResearch_onMaxAmountChanged()
     local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
     local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
     if minAmount > maxAmount then
@@ -234,7 +234,7 @@ function autoResearch_onMaxAmountChanged()
     end
 end
 
-function autoResearch_onStartAutoResearch()
+function ResearchStation.autoResearch_onStartAutoResearch()
     autoResearch_autoButton.active = false
     local itemType = autoResearch_itemTypeSelection.selectedIndex
     -- get system index
@@ -253,7 +253,7 @@ function autoResearch_onStartAutoResearch()
     invokeServerFunction("autoResearch_autoResearch", Rarity(autoResearch_raritySelection.selectedIndex).value, itemType, systemType, materialType, minAmount, maxAmount, separateAutoTurrets)
 end
 
-function autoResearch_fillSystems()
+function ResearchStation.autoResearch_fillSystems()
     if autoResearch_settingsReceived and autoResearch_systemSelection then -- if settings were already received and ui is ready
         autoResearch_systemSelection:clear()
         autoResearch_systemSelection:addEntry("All"%_t)
@@ -263,11 +263,11 @@ function autoResearch_fillSystems()
     end
 end
 
-function autoResearch_autoResearchComplete()
+function ResearchStation.autoResearch_autoResearchComplete()
     autoResearch_autoButton.active = true
 end
 
-function autoResearch_receiveSettings(systems)
+function ResearchStation.autoResearch_receiveSettings(systems)
     local system
     for i = 1, #systems do
         system = systems[i]
@@ -280,7 +280,7 @@ function autoResearch_receiveSettings(systems)
     table.sort(autoResearch_systemTypeNames)
     autoResearch_settingsReceived = true
     -- and add them to the combo box
-    autoResearch_fillSystems()
+    ResearchStation.autoResearch_fillSystems()
 end
 
 
@@ -310,8 +310,8 @@ autoResearch_systemTypeScripts = {
   "wormholeopener"
 }
 
-autoResearch_initialize = initialize
-function initialize()
+autoResearch_initialize = ResearchStation.initialize
+function ResearchStation.initialize()
     autoResearch_initialize()
 
     local configOptions = {
@@ -354,15 +354,15 @@ function initialize()
     AutoResearchConfig.CustomSystems = systemNameList
 end
 
-function autoResearch_getIndices(rarity, min, max, itemType, systemType, materialType, isAutoFire)
+function ResearchStation.autoResearch_getIndices(rarity, min, max, itemType, systemType, materialType, isAutoFire)
     local items = {}
     local itemIndices = {}
     local researchTime = false
     local grouped, player
     if itemType == 0 then
-        grouped, player = autoResearch_getSystemsByRarity(rarity, systemType)
+        grouped, player = ResearchStation.autoResearch_getSystemsByRarity(rarity, systemType)
     else
-        grouped, player = autoResearch_getTurretsByRarity(rarity, systemType, materialType, isAutoFire)
+        grouped, player = ResearchStation.autoResearch_getTurretsByRarity(rarity, systemType, materialType, isAutoFire)
     end
 
     local itemIndex
@@ -390,7 +390,7 @@ function autoResearch_getIndices(rarity, min, max, itemType, systemType, materia
     return items, itemIndices, player
 end
 
-function autoResearch_getSystemsByRarity(rarityType, systemType)
+function ResearchStation.autoResearch_getSystemsByRarity(rarityType, systemType)
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
     local inventory = buyer:getInventory()
     local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
@@ -412,7 +412,7 @@ function autoResearch_getSystemsByRarity(rarityType, systemType)
     return grouped, player
 end
 
-function autoResearch_getTurretsByRarity(rarityType, turretType, materialType, isAutoFire)
+function ResearchStation.autoResearch_getTurretsByRarity(rarityType, turretType, materialType, isAutoFire)
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
     local inventory = buyer:getInventory()
     local inventoryItems = inventory:getItemsByType(InventoryItemType.Turret)
@@ -430,7 +430,6 @@ function autoResearch_getTurretsByRarity(rarityType, turretType, materialType, i
                 materialValue = inventoryItem.item.material.value
                 if (not turretType or weaponType == turretType) and (not materialType or materialValue <= materialType) then
                     groupKey = materialValue.."_"..weaponType
-                    print("groupKey", groupKey)
                     local existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
                     if existing == nil then
                         grouped[groupKey] = {}
@@ -451,12 +450,12 @@ function autoResearch_getTurretsByRarity(rarityType, turretType, materialType, i
     return grouped, player
 end
 
-function autoResearch_sendSettings()
+function ResearchStation.autoResearch_sendSettings()
     invokeClientFunction(Player(callingPlayer), "autoResearch_receiveSettings", AutoResearchConfig.CustomSystems)
 end
-callable(nil, "autoResearch_sendSettings")
+callable(ResearchStation, "autoResearch_sendSettings")
 
-function autoResearch_autoResearch(maxRarity, itemType, systemType, materialType, minAmount, maxAmount, separateAutoTurrets)
+function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, systemType, materialType, minAmount, maxAmount, separateAutoTurrets)
     maxRarity = tonumber(maxRarity)
     itemType = tonumber(itemType)
     systemType = tonumber(systemType)
@@ -466,7 +465,7 @@ function autoResearch_autoResearch(maxRarity, itemType, systemType, materialType
     maxAmount = tonumber(maxAmount) or 5
     minAmount = math.min(minAmount, maxAmount)
     maxAmount = math.max(minAmount, maxAmount)
-    
+
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
     if not buyer then
         if player then
@@ -513,25 +512,25 @@ function autoResearch_autoResearch(maxRarity, itemType, systemType, materialType
             separateValue = -1
         end
         while true do
-            items, itemIndices, player = autoResearch_getIndices(RarityType.Petty, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            items, itemIndices, player = ResearchStation.autoResearch_getIndices(RarityType.Petty, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             if #items < minAmount then
-                items, itemIndices = autoResearch_getIndices(RarityType.Common, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Common, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             end
             if #items < minAmount and maxRarity >= RarityType.Uncommon then
-                items, itemIndices = autoResearch_getIndices(RarityType.Uncommon, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Uncommon, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             end
             if #items < minAmount and maxRarity >= RarityType.Rare then
-                items, itemIndices = autoResearch_getIndices(RarityType.Rare, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Rare, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             end
             if #items < minAmount and maxRarity >= RarityType.Exceptional then
-                items, itemIndices = autoResearch_getIndices(RarityType.Exceptional, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Exceptional, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             end
             if #items < minAmount and maxRarity >= RarityType.Exotic then
-                items, itemIndices = autoResearch_getIndices(RarityType.Exotic, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Exotic, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
             end
             
             if #items >= minAmount then
-                research(itemIndices)
+                ResearchStation.research(itemIndices)
             else
                 break
             end
@@ -540,7 +539,7 @@ function autoResearch_autoResearch(maxRarity, itemType, systemType, materialType
 
     invokeClientFunction(player, "autoResearch_autoResearchComplete")
 end
-callable(nil, "autoResearch_autoResearch")
+callable(ResearchStation, "autoResearch_autoResearch")
 
 
 end
