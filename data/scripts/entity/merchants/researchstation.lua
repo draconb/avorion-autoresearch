@@ -4,7 +4,7 @@ local AutoResearchIntegration = include("AutoResearchIntegration")
 -- all local variables are outside of 'onClient/onServer' blocks to make them accessible for other mods
 local autoResearch_autoButton, autoResearch_itemTypeSelection, autoResearch_raritySelection, autoResearch_systemSelection, autoResearch_minAmountComboBox, autoResearch_maxAmountComboBox, autoResearch_materialSelection, autoResearch_separateAutoCheckBox, separateAutoLabel -- client UI
 local autoResearch_settingsReceived, autoResearch_systemTypeNames, autoResearch_systemTypeNameIndexes, autoResearch_turretTypeNames, autoResearch_turretTypeByName -- client
-local AutoResearchConfig, autoResearch_systemTypeScripts -- server
+local AutoResearchConfig, AutoResearchLog, autoResearch_systemTypeScripts, autoResearch_playerLocks -- server
 local autoResearch_initialize -- extended functions
 
 if onClient() then
@@ -15,6 +15,7 @@ autoResearch_systemTypeNames = {
   "Battery Upgrade"%_t,
   "T1M-LRD-Tech Cargo Upgrade MK ${mark}"%_t % {mark = "X "},
   "Turret Control System C-TCS-${num}"%_t % {num = "X "},
+  "Defense Weapons System DWS-${num}"%_t % {num = "X "},
   "Generator Upgrade"%_t,
   "Energy to Shield Converter"%_t,
   "Engine Upgrade"%_t,
@@ -292,6 +293,7 @@ autoResearch_systemTypeScripts = {
   "batterybooster",
   "cargoextension",
   "civiltcs",
+  "defensesystem",
   "energybooster",
   "energytoshieldconverter",
   "enginebooster",
@@ -309,6 +311,7 @@ autoResearch_systemTypeScripts = {
   "velocitybypass",
   "wormholeopener"
 }
+autoResearch_playerLocks = {} -- save player index in order to prevent from starting 2 researches at the same time
 
 autoResearch_initialize = ResearchStation.initialize
 function ResearchStation.initialize()
@@ -316,12 +319,16 @@ function ResearchStation.initialize()
 
     local configOptions = {
       _version = { default = "1.1", comment = "Config version. Don't touch." },
+      ConsoleLogLevel = { default = 2, min = 0, max = 4, format = "floor", comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug." },
+      FileLogLevel = { default = 2, min = 0, max = 4, format = "floor", comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug." },
       CustomSystems = {
         default = {
           lootrangebooster = { name = "RCN-00 Tractor Beam Upgrade MK ${mark}", extra = { mark = "X " } } -- using Tractor Beam Upgrade as an example
         },
         comment = 'Here you can add custom systems. Format: "systemfilename" = { name = "System Display Name MK-${mark}", extra = { mark = "X" } }. "Extra" table holds additional name variables - just replace them all with "X ".'
-      }
+      },
+      ResearchGroupVolume = { default = 70, min = 5, format = "floor", comment = "Make a slight delay after specified amount of researches to prevent server from hanging." },
+      DelayInterval = { default = 1, min = 0.05, comment = "Delay interval in seconds between research batches." }
     }
     local isModified
     AutoResearchConfig, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
@@ -339,6 +346,7 @@ function ResearchStation.initialize()
     if isModified then
         Azimuth.saveConfig("AutoResearch", AutoResearchConfig, configOptions)
     end
+    AutoResearchLog = Azimuth.logs("AutoResearch", AutoResearchConfig.ConsoleLogLevel, AutoResearchConfig.FileLogLevel)
 
     -- add custom systems
     local systemNameList = {}
@@ -354,22 +362,23 @@ function ResearchStation.initialize()
     AutoResearchConfig.CustomSystems = systemNameList
 end
 
-function ResearchStation.autoResearch_getIndices(rarity, min, max, itemType, systemType, materialType, isAutoFire)
+function ResearchStation.autoResearch_getIndices(inventory, rarity, min, max, itemType, systemType, materialType, isAutoFire)
     local items = {}
     local itemIndices = {}
+    local grouped
     local researchTime = false
-    local grouped, player
     if itemType == 0 then
-        grouped, player = ResearchStation.autoResearch_getSystemsByRarity(rarity, systemType)
+        grouped = ResearchStation.autoResearch_getSystemsByRarity(inventory, rarity, systemType)
     else
-        grouped, player = ResearchStation.autoResearch_getTurretsByRarity(rarity, systemType, materialType, isAutoFire)
+        grouped = ResearchStation.autoResearch_getTurretsByRarity(inventory, rarity, systemType, materialType, isAutoFire - 1)
     end
 
     local itemIndex
-    for g, group in pairs(grouped) do
-        itemIndices = {}
-        items = {}
+    for _, group in pairs(grouped) do
+        --AutoResearchLog.Debug("getIndices: (min %s) %s => %s ==>> %s", tostring(min), tostring(_), #group, Azimuth.serialize(group))
         if #group >= min then
+            itemIndices = {}
+            items = {}
             for i, itemInfo in ipairs(group) do
                 items[i] = itemInfo.item
                 itemIndex = itemIndices[itemInfo.index]
@@ -387,34 +396,37 @@ function ResearchStation.autoResearch_getIndices(rarity, min, max, itemType, sys
         end
     end
 
-    return items, itemIndices, player
+    --AutoResearchLog.Debug("getIndices - result: %s", Azimuth.serialize(items))
+    return items, itemIndices
 end
 
-function ResearchStation.autoResearch_getSystemsByRarity(rarityType, systemType)
-    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
-    local inventory = buyer:getInventory()
+function ResearchStation.autoResearch_getSystemsByRarity(inventory, rarityType, systemType)
     local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
     local grouped = {}
 
+    local existing, length
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite)
           and (not systemType or inventoryItem.item.script == systemType) then
-            local existing = grouped[inventoryItem.item.name]
+            existing = grouped[inventoryItem.item.script]
             if existing == nil then
-                grouped[inventoryItem.item.name] = {}
-                grouped[inventoryItem.item.name][1] = { item = inventoryItem.item, index = i }
+                grouped[inventoryItem.item.script] = {}
+                grouped[inventoryItem.item.script][1] = { item = inventoryItem.item, index = i }
             else
-                existing[#existing + 1] = { item = inventoryItem.item, index = i }
+                length = #existing + 1
+                existing[length] = { item = inventoryItem.item, index = i }
+                if length == 5 then -- no need to search for more, we already have 5 systems
+                    return {existing}
+                end
             end
         end
     end
 
-    return grouped, player
+    --AutoResearchLog.Debug("Systems: %s", Azimuth.serialize(grouped))
+    return grouped
 end
 
-function ResearchStation.autoResearch_getTurretsByRarity(rarityType, turretType, materialType, isAutoFire)
-    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
-    local inventory = buyer:getInventory()
+function ResearchStation.autoResearch_getTurretsByRarity(inventory, rarityType, turretType, materialType, isAutoFire)
     local inventoryItems = inventory:getItemsByType(InventoryItemType.Turret)
     local turretTemplates = inventory:getItemsByType(InventoryItemType.TurretTemplate)
     for i, inventoryItem in pairs(turretTemplates) do
@@ -422,7 +434,7 @@ function ResearchStation.autoResearch_getTurretsByRarity(rarityType, turretType,
     end
     local grouped = {}
 
-    local weaponType, materialValue, groupKey
+    local existing, weaponType, materialValue, groupKey, selectedKey
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite) then
             if isAutoFire == -1 or (isAutoFire == 0 and not inventoryItem.item.automatic) or (isAutoFire == 1 and inventoryItem.item.automatic) then
@@ -430,13 +442,19 @@ function ResearchStation.autoResearch_getTurretsByRarity(rarityType, turretType,
                 materialValue = inventoryItem.item.material.value
                 if (not turretType or weaponType == turretType) and (not materialType or materialValue <= materialType) then
                     groupKey = materialValue.."_"..weaponType
-                    local existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
-                    if existing == nil then
-                        grouped[groupKey] = {}
-                        existing = grouped[groupKey]
-                    end
-                    for j = 1, inventoryItem.amount do
-                        existing[#existing+1] = { item = inventoryItem.item, index = i }
+                    if not selectedKey or groupKey == selectedKey then
+                        existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
+                        if existing == nil then
+                            grouped[groupKey] = {}
+                            existing = grouped[groupKey]
+                        end
+                        for j = 1, inventoryItem.amount do
+                            existing[#existing+1] = { item = inventoryItem.item, index = i }
+                        end
+                        if not selectedKey and #existing >= 5 then -- we have 5+ of that turret type + material, just focus on these and remove others
+                            selectedKey = groupKey
+                            grouped = { [selectedKey] = existing }
+                        end
                     end
                 end
             end
@@ -447,7 +465,7 @@ function ResearchStation.autoResearch_getTurretsByRarity(rarityType, turretType,
         table.sort(group, function(a, b) return a.item.dps < b.item.dps end)
     end
 
-    return grouped, player
+    return grouped
 end
 
 function ResearchStation.autoResearch_sendSettings()
@@ -467,24 +485,31 @@ function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, systemTy
     maxAmount = math.max(minAmount, maxAmount)
 
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
+    if not player then return end
     if not buyer then
-        if player then
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-        end
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        return
+    end
+    
+    if not ResearchStation.interactionPossible(callingPlayer) then
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
         return
     end
 
     local station = Entity()
-
     local errors = {}
     errors[EntityType.Station] = "You must be docked to the station to research items."%_T
     errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
     if not CheckPlayerDocked(player, station, errors) then
-        if player then
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-        end
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
         return
     end
+
+    if autoResearch_playerLocks[callingPlayer] then -- auto research is already going
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        return
+    end
+    autoResearch_playerLocks[callingPlayer] = true
     
     -- Get System Upgrade script path from selectedIndex
     if systemType == -1 then -- all
@@ -500,46 +525,142 @@ function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, systemTy
         materialType = nil
     end
 
-    local items, itemIndices, player
-    local separateCounter = 0
-    if itemType == 1 and separateAutoTurrets then
-        separateCounter = 1
+    local inventory = buyer:getInventory() -- get just once
+    AutoResearchLog.Debug("Player %i - Research started", callingPlayer)
+    local result = deferredCallback(0, "autoResearch_deferred", callingPlayer, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, systemType, materialType, {{},{}})
+    if not result then
+        AutoResearchLog.Error("Player %i - Failed to defer research", callingPlayer)
+        autoResearch_playerLocks[callingPlayer] = nil
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
     end
-    local separateValue
-    for i = 0, separateCounter do -- if itemType is turret, research independently 2 times (no auto fire and auto fire)
+end
+callable(ResearchStation, "autoResearch_autoResearch")
+
+function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, systemType, materialType, skipRarities)
+    if AutoResearchLog.isDebug then
+        AutoResearchLog.Debug("Player %i - Another iteration: inv %s, separate %s, min %i, max %i, itemtype %i, system %s, material %s, skipRarities %s", playerIndex, tostring(inventory), tostring(separateAutoTurrets), minAmount, maxAmount, itemType, tostring(systemType), tostring(materialType), Azimuth.serialize(skipRarities))
+    end
+
+    if not Server():isOnline(playerIndex) then -- someone got bored and left..
+        AutoResearchLog.Debug("Player %i - End of research (player offline)", playerIndex)
+        autoResearch_playerLocks[playerIndex] = nil -- unlock
+        return
+    end
+
+    local player = Player(playerIndex)
+
+    local items, itemIndices, separateValue, itemsLength
+    local separateCounter = 1
+    if itemType == 1 and separateAutoTurrets then
+        separateCounter = 2
+    end
+    local j = 1
+    for i = 1, separateCounter do -- if itemType is turret, research independently 2 times (no auto fire and auto fire)
         separateValue = i
         if not separateAutoTurrets then
-            separateValue = -1
+            separateValue = 0 -- will turn into -1
         end
         while true do
-            items, itemIndices, player = ResearchStation.autoResearch_getIndices(RarityType.Petty, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
-            if #items < minAmount then
-                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Common, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            if j == AutoResearchConfig.ResearchGroupVolume then -- we need to make a small delay to prevent script from hanging
+                goto autoResearch_finish
             end
-            if #items < minAmount and maxRarity >= RarityType.Uncommon then
-                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Uncommon, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            itemsLength = 0
+            if not skipRarities[i][RarityType.Petty] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Petty, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Petty] = true -- skip this rarity in the future
+                end
             end
-            if #items < minAmount and maxRarity >= RarityType.Rare then
-                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Rare, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            if itemsLength < minAmount and not skipRarities[i][RarityType.Common] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Common, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Common] = true
+                end
             end
-            if #items < minAmount and maxRarity >= RarityType.Exceptional then
-                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Exceptional, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            if itemsLength < minAmount and maxRarity >= RarityType.Uncommon and not skipRarities[i][RarityType.Uncommon] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Uncommon, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Uncommon] = true
+                end
             end
-            if #items < minAmount and maxRarity >= RarityType.Exotic then
-                items, itemIndices = ResearchStation.autoResearch_getIndices(RarityType.Exotic, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+            if itemsLength < minAmount and maxRarity >= RarityType.Rare and not skipRarities[i][RarityType.Rare] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Rare, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Rare] = true
+                end
             end
-            
-            if #items >= minAmount then
+            if itemsLength < minAmount and maxRarity >= RarityType.Exceptional and not skipRarities[i][RarityType.Exceptional] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Exceptional, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Exceptional] = true
+                end
+            end
+            if itemsLength < minAmount and maxRarity >= RarityType.Exotic and not skipRarities[i][RarityType.Exotic] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Exotic, minAmount, maxAmount, itemType, systemType, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Exotic] = true
+                end
+            end
+
+            if itemsLength >= minAmount then
+                callingPlayer = playerIndex -- make server think that player invoked usual research
                 ResearchStation.research(itemIndices)
+                callingPlayer = nil
             else
                 break
             end
+            j = j + 1
         end
     end
-
-    invokeClientFunction(player, "autoResearch_autoResearchComplete")
+    ::autoResearch_finish::
+    if itemsLength < minAmount then -- nothing more to research, end auto research
+        AutoResearchLog.Debug("Player %i - End of research", playerIndex)
+        autoResearch_playerLocks[playerIndex] = nil -- unlock
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
+    else -- continue a bit later
+        -- check if player still has good enough relations
+        if not ResearchStation.interactionPossible(playerIndex) then
+            AutoResearchLog.Debug("Player %i - End of research (bad relations)", playerIndex)
+            autoResearch_playerLocks[playerIndex] = nil -- unlock
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+            return
+        end
+        -- check if player is allowed to research alliance stuff to prevent endless loop
+        if not getInteractingFaction(playerIndex, AlliancePrivilege.SpendResources) then
+            AutoResearchLog.Debug("Player %i - End of research (no alliance permission)", playerIndex)
+            autoResearch_playerLocks[playerIndex] = nil -- unlock
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+            return
+        end
+        -- if player is not docked, stop immediately or we'll be stuck in a loop
+        local errors = {}
+        errors[EntityType.Station] = "You must be docked to the station to research items."%_T
+        errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
+        if not CheckPlayerDocked(player, Entity(), errors) then
+            AutoResearchLog.Debug("Player %i - End of research (not docked)", playerIndex)
+            autoResearch_playerLocks[playerIndex] = nil -- unlock
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+            return
+        end
+        -- continue after a delay
+        local result = deferredCallback(AutoResearchConfig.DelayInterval, "autoResearch_deferred", playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, systemType, materialType, skipRarities)
+        if not result then
+            AutoResearchLog.Error("Player %i - Failed to defer research", playerIndex)
+            autoResearch_playerLocks[playerIndex] = nil
+            invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        end
+    end
 end
-callable(ResearchStation, "autoResearch_autoResearch")
+
+if not ResearchStation.updateServer then -- fixing deferredCallback
+    function ResearchStation.updateServer() end
+end
 
 
 end
