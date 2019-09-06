@@ -1,16 +1,22 @@
-# ========== mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua ==========
-#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
-msgid "Auto Research"
-msgstr ""
-
-#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+# ========== data\scripts\entity\merchants\researchstation.lua ==========
+#: data\scripts\entity\merchants\researchstation.lua:
 msgid "Min amount"
 msgstr ""
 
-#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+#: data\scripts\entity\merchants\researchstation.lua:
 msgid "Max amount"
 msgstr ""
 
-#: mods\AutoResearch\data\scripts\entity\merchants\researchstation.lua:
+#: data\scripts\entity\merchants\researchstation.lua:
 msgid "Research Auto/Non-auto turrets separately"
 msgstr ""
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Auto Research"
+msgstr ""
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Stop Auto Research"
+msgstr ""
+
+
