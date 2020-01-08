@@ -550,6 +550,19 @@ function ResearchStation.autoResearch_getSystemsByRarity(inventory, rarityType, 
             existing = grouped[inventoryItem.item.script]
             if existing == nil then
                 grouped[inventoryItem.item.script] = {}
+                existing = grouped[inventoryItem.item.script]
+            end
+            -- Systems can stack now
+            length = math.min(inventoryItem.amount, 5 - #existing)
+            for j = 1, length do
+                existing[#existing + 1] = { item = inventoryItem.item, index = i }
+            end
+            if #existing == 5 then -- no need to search for more, we already have 5 systems
+                AutoResearchLog.Debug("Systems (cycle): %s", existing)
+                return {existing}
+            end
+            --[[if existing == nil then
+                grouped[inventoryItem.item.script] = {}
                 grouped[inventoryItem.item.script][1] = { item = inventoryItem.item, index = i }
             else
                 length = #existing + 1
@@ -557,11 +570,11 @@ function ResearchStation.autoResearch_getSystemsByRarity(inventory, rarityType, 
                 if length == 5 then -- no need to search for more, we already have 5 systems
                     return {existing}
                 end
-            end
+            end]]
         end
     end
 
-    --AutoResearchLog.Debug("Systems: %s", Azimuth.serialize(grouped))
+    AutoResearchLog.Debug("Systems (end): %s", grouped)
     return grouped
 end
 
