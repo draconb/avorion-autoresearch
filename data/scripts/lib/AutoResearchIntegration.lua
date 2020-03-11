@@ -1,8 +1,5 @@
 -- This file allows to add Auto Research support for system upgrade entries.
 
-package.path = package.path .. ";data/scripts/lib/?.lua"
-include("stringutility")
-
 local customSystems = {}
 
 local function addSystemUpgrade(scriptName, systemName, extraArguments)

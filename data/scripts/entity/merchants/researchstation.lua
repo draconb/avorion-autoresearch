@@ -223,9 +223,8 @@ function ResearchStation.autoResearch_onItemTypeChanged()
                 autoResearch_typesCache.systems[i] = autoResearch_typesCheckBoxes[i].element.checked
             end
             -- restore selected system types
-            local checkBox
             for i = 1, #autoResearch_turretTypeNames do
-                checkBox = autoResearch_typesCheckBoxes[i]
+                local checkBox = autoResearch_typesCheckBoxes[i]
                 checkBox.caption = autoResearch_turretTypeNames[i]
                 checkBox.element.caption = checkBox.caption
                 checkBox.element.visible = true
@@ -275,11 +274,10 @@ function ResearchStation.autoResearch_onStartAutoResearch()
         local itemType = autoResearch_itemTypeSelection.selectedIndex
         -- get system/turret indexex
         local selectedTypes = {}
-        local checkBox
         local hasTypes = false
         if itemType == 0 then
             for i = 1, #autoResearch_systemTypeNames do
-                checkBox = autoResearch_typesCheckBoxes[i]
+                local checkBox = autoResearch_typesCheckBoxes[i]
                 if checkBox.element.checked then
                     selectedTypes[autoResearch_systemTypeNameIndexes[checkBox.caption]] = true
                     hasTypes = true
@@ -287,7 +285,7 @@ function ResearchStation.autoResearch_onStartAutoResearch()
             end
         else
             for i = 1, #autoResearch_turretTypeNames do
-                checkBox = autoResearch_typesCheckBoxes[i]
+                local checkBox = autoResearch_typesCheckBoxes[i]
                 if checkBox.element.checked then
                     selectedTypes[autoResearch_turretTypeByName[checkBox.caption]] = true
                     hasTypes = true
@@ -317,9 +315,8 @@ function ResearchStation.autoResearch_fillSystems()
             autoResearch_typesCache.turrets[i] = autoResearch_typesCheckBoxes[i].element.checked
         end
         -- restore selected system types
-        local checkBox
         for i = 1, #autoResearch_systemTypeNames do
-            checkBox = autoResearch_typesCheckBoxes[i]
+            local checkBox = autoResearch_typesCheckBoxes[i]
             checkBox.caption = autoResearch_systemTypeNames[i]
             checkBox.element.caption = checkBox.caption
             checkBox.element.visible = true
@@ -348,11 +345,10 @@ function ResearchStation.autoResearch_finishInitUI()
         autoResearch_allTypesCheckBox:setCheckedNoCallback(true)
         local line = scrollFrame:createLine(vec2(rect.lower.x, rect.upper.y), rect.upper)
         local linesAmount = math.max(#autoResearch_systemTypeNames, #autoResearch_turretTypeNames)
-        local checkBox
         autoResearch_typesCheckBoxes = {}
         for i = 1, linesAmount do
             rect = lister:placeCenter(vec2(lister.inner.width, 25))
-            checkBox = scrollFrame:createCheckBox(rect, "", "autoResearch_onTypeCheckBox")
+            local checkBox = scrollFrame:createCheckBox(rect, "", "autoResearch_onTypeCheckBox")
             checkBox.fontSize = 11
             checkBox.captionLeft = false
             checkBox:setCheckedNoCallback(true)
@@ -391,9 +387,8 @@ function ResearchStation.autoResearch_autoResearchComplete()
 end
 
 function ResearchStation.autoResearch_receiveSettings(systems)
-    local system
     for i = 1, #systems do
-        system = systems[i]
+        local system = systems[i]
         autoResearch_systemTypeNames[#autoResearch_systemTypeNames+1] = (system.name%_t) % (system.extra or {})
     end
     -- and now sort system names
@@ -465,7 +460,6 @@ function ResearchStation.initialize()
     local isModified
     AutoResearchConfig, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
     -- check 'CustomSystems'
-    local t
     for k, v in pairs(AutoResearchConfig.CustomSystems) do
         if type(v) ~= "table" or not v.name then
             AutoResearchConfig.CustomSystems[k] = nil
@@ -505,22 +499,20 @@ function ResearchStation.autoResearch_getIndices(inventory, rarity, min, max, it
     local items = {}
     local itemIndices = {}
     local grouped
-    local researchTime = false
     if itemType == 0 then
         grouped = ResearchStation.autoResearch_getSystemsByRarity(inventory, rarity, selectedTypes)
     else
         grouped = ResearchStation.autoResearch_getTurretsByRarity(inventory, rarity, selectedTypes, materialType, isAutoFire - 1)
     end
 
-    local itemIndex
+    local researchTime = false
     for _, group in pairs(grouped) do
-        --AutoResearchLog.Debug("getIndices: (min %s) %s => %s ==>> %s", tostring(min), tostring(_), #group, Azimuth.serialize(group))
         if #group >= min then
             itemIndices = {}
             items = {}
             for i, itemInfo in ipairs(group) do
                 items[i] = itemInfo.item
-                itemIndex = itemIndices[itemInfo.index]
+                local itemIndex = itemIndices[itemInfo.index]
                 if not itemIndex then
                     itemIndices[itemInfo.index] = 1
                 else
@@ -535,7 +527,6 @@ function ResearchStation.autoResearch_getIndices(inventory, rarity, min, max, it
         end
     end
 
-    --AutoResearchLog.Debug("getIndices - result: %s", Azimuth.serialize(items))
     return items, itemIndices
 end
 
@@ -543,38 +534,27 @@ function ResearchStation.autoResearch_getSystemsByRarity(inventory, rarityType, 
     local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
     local grouped = {}
 
-    local existing, length
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite)
           and selectedTypes[inventoryItem.item.script] then
-            existing = grouped[inventoryItem.item.script]
+            local existing = grouped[inventoryItem.item.script]
             if existing == nil then
                 grouped[inventoryItem.item.script] = {}
                 existing = grouped[inventoryItem.item.script]
             end
             -- Systems can stack now
-            length = math.min(inventoryItem.amount, 5 - #existing)
+            local length = math.min(inventoryItem.amount, 5 - #existing)
             for j = 1, length do
                 existing[#existing + 1] = { item = inventoryItem.item, index = i }
             end
             if #existing == 5 then -- no need to search for more, we already have 5 systems
-                AutoResearchLog.Debug("Systems (cycle): %s", existing)
+                AutoResearchLog:Debug("Systems (cycle): %s", existing)
                 return {existing}
             end
-            --[[if existing == nil then
-                grouped[inventoryItem.item.script] = {}
-                grouped[inventoryItem.item.script][1] = { item = inventoryItem.item, index = i }
-            else
-                length = #existing + 1
-                existing[length] = { item = inventoryItem.item, index = i }
-                if length == 5 then -- no need to search for more, we already have 5 systems
-                    return {existing}
-                end
-            end]]
         end
     end
 
-    AutoResearchLog.Debug("Systems (end): %s", grouped)
+    AutoResearchLog:Debug("Systems (end): %s", grouped)
     return grouped
 end
 
@@ -586,16 +566,16 @@ function ResearchStation.autoResearch_getTurretsByRarity(inventory, rarityType, 
     end
     local grouped = {}
 
-    local existing, weaponType, materialValue, groupKey, selectedKey
+    local selectedKey
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite) then
             if isAutoFire == -1 or (isAutoFire == 0 and not inventoryItem.item.automatic) or (isAutoFire == 1 and inventoryItem.item.automatic) then
-                weaponType = WeaponTypes.getTypeOfItem(inventoryItem.item)
-                materialValue = inventoryItem.item.material.value
+                local weaponType = WeaponTypes.getTypeOfItem(inventoryItem.item)
+                local materialValue = inventoryItem.item.material.value
                 if selectedTypes[weaponType] and (not materialType or materialValue <= materialType) then
-                    groupKey = materialValue.."_"..weaponType
+                    local groupKey = materialValue.."_"..weaponType
                     if not selectedKey or groupKey == selectedKey then
-                        existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
+                        local existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
                         if existing == nil then
                             grouped[groupKey] = {}
                             existing = grouped[groupKey]
@@ -641,20 +621,6 @@ function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, selected
         invokeClientFunction(player, "autoResearch_autoResearchComplete")
         return
     end
-    
-    if not ResearchStation.interactionPossible(callingPlayer) then
-        invokeClientFunction(player, "autoResearch_autoResearchComplete")
-        return
-    end
-
-    local station = Entity()
-    local errors = {}
-    errors[EntityType.Station] = "You must be docked to the station to research items."%_T
-    errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
-    if not CheckPlayerDocked(player, station, errors) then
-        invokeClientFunction(player, "autoResearch_autoResearchComplete")
-        return
-    end
 
     if autoResearch_playerLocks[callingPlayer] then -- auto research is already going
         invokeClientFunction(player, "autoResearch_autoResearchComplete")
@@ -679,10 +645,10 @@ function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, selected
     end
 
     local inventory = buyer:getInventory() -- get just once
-    AutoResearchLog.Debug("Player %i - Research started", callingPlayer)
+    AutoResearchLog:Debug("Player %i - Research started", callingPlayer)
     local result = deferredCallback(0, "autoResearch_deferred", callingPlayer, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, {{},{}})
     if not result then
-        AutoResearchLog.Error("Player %i - Failed to defer research", callingPlayer)
+        AutoResearchLog:Error("Player %i - Failed to defer research", callingPlayer)
         autoResearch_playerLocks[callingPlayer] = nil
         invokeClientFunction(player, "autoResearch_autoResearchComplete")
     end
@@ -696,18 +662,18 @@ callable(ResearchStation, "autoResearch_stopAutoResearch")
 
 function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, skipRarities)
     if AutoResearchLog.isDebug then
-        AutoResearchLog.Debug("Player %i - Another iteration: inv %s, separate %s, min %i, max %i, itemtype %i, system %s, material %s, skipRarities %s", playerIndex, tostring(inventory), tostring(separateAutoTurrets), minAmount, maxAmount, itemType, Azimuth.serialize(selectedTypes), tostring(materialType), Azimuth.serialize(skipRarities))
+        AutoResearchLog:Debug("Player %i - Another iteration: inv %s, separate %s, min %i, max %i, itemtype %i, system %s, material %s, skipRarities %s", playerIndex, tostring(inventory), tostring(separateAutoTurrets), minAmount, maxAmount, itemType, Azimuth.serialize(selectedTypes), tostring(materialType), Azimuth.serialize(skipRarities))
     end
 
     if not Server():isOnline(playerIndex) then -- someone got bored and left..
-        AutoResearchLog.Debug("Player %i - End of research (player offline/away)", playerIndex)
+        AutoResearchLog:Debug("Player %i - End of research (player offline/away)", playerIndex)
         autoResearch_playerLocks[playerIndex] = nil -- unlock
         return
     end
 
     local player = Player(playerIndex)
 
-    local items, itemIndices, separateValue, itemsLength
+    local items, itemIndices, itemsLength, isResearchFine, researchCode
     local separateCounter = 1
     if itemType == 1 and separateAutoTurrets then
         separateCounter = 2
@@ -718,8 +684,9 @@ function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateA
         timer:start()
     end
     local j = 1
+    callingPlayer = playerIndex -- make server think that player invoked usual research
     for i = 1, separateCounter do -- if itemType is turret, research independently 2 times (no auto fire and auto fire)
-        separateValue = i
+        local separateValue = i
         if not separateAutoTurrets then
             separateValue = 0 -- will turn into -1
         end
@@ -776,9 +743,8 @@ function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateA
             end
 
             if itemsLength >= minAmount then
-                callingPlayer = playerIndex -- make server think that player invoked usual research
-                ResearchStation.research(itemIndices)
-                callingPlayer = nil
+                isResearchFine, researchCode = ResearchStation.research(itemIndices) -- thanks for Research Station Lib there is no need for double checks
+                if not isResearchFine then break end -- something went wrong
             else
                 break
             end
@@ -786,53 +752,32 @@ function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateA
         end
     end
     ::autoResearch_finish::
+    callingPlayer = nil
     if AutoResearchLog.isDebug then
         timer:stop()
-        AutoResearchLog.Debug("Iteration took %s", timer.secondsStr)
+        AutoResearchLog:Debug("Iteration took %s", timer.secondsStr)
     end
-    if itemsLength < minAmount then -- nothing more to research, end auto research
-        AutoResearchLog.Debug("Player %i - End of research", playerIndex)
-        autoResearch_playerLocks[playerIndex] = nil -- unlock
-        invokeClientFunction(player, "autoResearch_autoResearchComplete")
-    else -- continue a bit later
-        if autoResearch_playerLocks[playerIndex] and autoResearch_playerLocks[playerIndex] == 2 then -- interrupted by player
-            AutoResearchLog.Debug("Player %i - End of research (stopped by player)", playerIndex)
-            autoResearch_playerLocks[playerIndex] = nil -- unlock
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-            return
-        end
-        -- check if player still has good enough relations
-        if not ResearchStation.interactionPossible(playerIndex) then
-            AutoResearchLog.Debug("Player %i - End of research (bad relations)", playerIndex)
-            autoResearch_playerLocks[playerIndex] = nil -- unlock
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-            return
-        end
-        -- check if player is allowed to research alliance stuff to prevent endless loop
-        if not getInteractingFaction(playerIndex, AlliancePrivilege.SpendResources) then
-            AutoResearchLog.Debug("Player %i - End of research (no alliance permission / switched a sector)", playerIndex)
-            autoResearch_playerLocks[playerIndex] = nil -- unlock
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-            return
-        end
-        -- if player is not docked, stop immediately or we'll be stuck in a loop
-        local errors = {}
-        errors[EntityType.Station] = "You must be docked to the station to research items."%_T
-        errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
-        if not CheckPlayerDocked(player, Entity(), errors) then
-            AutoResearchLog.Debug("Player %i - End of research (not docked)", playerIndex)
-            autoResearch_playerLocks[playerIndex] = nil -- unlock
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-            return
-        end
-        -- continue after a delay
+    local endResearch
+    if isResearchFine == false then -- something went wrong (didn't pass one of the checks)
+        AutoResearchLog:Debug("Player %i - End of research (exited with code %i)", playerIndex, researchCode)
+        endResearch = true
+    elseif itemsLength < minAmount then -- nothing more to research, end auto research
+        AutoResearchLog:Debug("Player %i - End of research", playerIndex)
+        endResearch = true
+    elseif autoResearch_playerLocks[playerIndex] and autoResearch_playerLocks[playerIndex] == 2 then -- interrupted by player
+        AutoResearchLog:Debug("Player %i - End of research (stopped by player)", playerIndex)
+        endResearch = true
+    end
+
+    if not endResearch then -- continue after a delay
         local result = deferredCallback(AutoResearchConfig.DelayInterval, "autoResearch_deferred", playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, skipRarities)
-        if not result then
-            AutoResearchLog.Error("Player %i - Failed to defer research", playerIndex)
-            autoResearch_playerLocks[playerIndex] = nil
-            invokeClientFunction(player, "autoResearch_autoResearchComplete")
-        end
+        if result then return end
+        AutoResearchLog:Error("Player %i - Failed to defer research", playerIndex)
     end
+
+    -- end research
+    autoResearch_playerLocks[playerIndex] = nil -- unlock
+    invokeClientFunction(player, "autoResearch_autoResearchComplete")
 end
 
 if not ResearchStation.updateServer then -- fixing deferredCallback
