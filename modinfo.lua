@@ -13,6 +13,9 @@ meta =
     -- Title of your mod that will be displayed to players
     title = "Auto Research",
 
+    -- Type of your mod, either "mod" or "factionpack"
+    type = "mod",
+
     -- Description of your mod that will be displayed to players
     description = "Automatically researches specified upgrades from lowest to highest. Will not research favorited items.",
 
@@ -20,8 +23,10 @@ meta =
     authors = {"Rinart73", "DracoNB"},
 
     -- Version of your mod, should be in format 1.0.0 (major.minor.patch) or 1.0 (major.minor)
-    -- This will be used to check for unmet dependencies or incompatibilities
-    version = "1.3.2",
+    -- This will be used to check for unmet dependencies or incompatibilities, and to check compatibility between clients and dedicated servers with mods.
+    -- If a client with an unmatching major or minor mod version wants to log into a server, login is prohibited.
+    -- Unmatching patch version still allows logging into a server. This works in both ways (server or client higher or lower version).
+    version = "1.3.3",
 
     -- If your mod requires dependencies, enter them here. The game will check that all dependencies given here are met.
     -- Possible attributes:
@@ -40,8 +45,8 @@ meta =
     -- },
     dependencies = {
         {id = "2019799968", min = "1.0"},
-        {id = "1722652757", min = "1.4"},
-        {id = "Avorion", min = "0.31", max = "1.*"}
+        {id = "1722652757", min = "1.5"},
+        {id = "Avorion", min = "1.1.2", max = "1.*"}
     },
 
     -- Set to true if the mod only has to run on the server. Clients will get notified that the mod is running on the server, but they won't download it to themselves

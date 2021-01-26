@@ -13,19 +13,20 @@ if onClient() then
 
 
 autoResearch_systemTypeNames = {
-  "Turret Control System A-TCS-${num}"%_t % {num = "X "},
+  "Turret Control System A-TCS-${num}"%_t % {num = "X"},
   "Battery Upgrade"%_t,
-  "T1M-LRD-Tech Cargo Upgrade MK ${mark}"%_t % {mark = "X "},
-  "Turret Control System C-TCS-${num}"%_t % {num = "X "},
-  "Defense Weapons System DWS-${num}"%_t % {num = "X "},
+  "T1M-LRD-Tech Cargo Upgrade MK ${mark}"%_t % {mark = "X"},
+  "Turret Control System C-TCS-${num}"%_t % {num = "X"},
+  "Internal Defense Weapons System IDWS-${num}"%_t % {num = "X"},
   "Generator Upgrade"%_t,
   "Energy to Shield Converter"%_t,
   "Engine Upgrade"%_t,
   "Quantum ${num}Hyperspace Upgrade"%_t % {num = "X "},
-  --"RCN-00 Tractor Beam Upgrade MK ${mark}"%_t % {mark = "X "},
-  "Turret Control System M-TCS-${num}"%_t % {num = "X "},
+  --"RCN-00 Tractor Beam Upgrade MK ${mark}"%_t % {mark = "X"},
+  "Turret Control System M-TCS-${num}"%_t % {num = "X"},
   "Mining System"%_t,
   "Radar Upgrade"%_t,
+  "Shield Ionizer"%_t,
   "Scanner Upgrade"%_t,
   "Shield Booster"%_t,
   "Shield Reinforcer"%_t,
@@ -33,6 +34,7 @@ autoResearch_systemTypeNames = {
   "Transporter Software"%_t,
   "C43 Object Detector"%_t,
   "Velocity Security Control Bypass"%_t,
+  "W-${designation}-Hull Polarizer ${rarity}"%_t % {designation = "X", rarity = "X"},
   "Xsotan Technology Fragment"%_t
 }
 autoResearch_systemTypeNameIndexes = {}
@@ -445,30 +447,22 @@ function ResearchStation.initialize()
     autoResearch_initialize()
 
     local configOptions = {
-      _version = { default = "1.2", comment = "Config version. Don't touch." },
-      ConsoleLogLevel = { default = 2, min = 0, max = 4, format = "floor", comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug." },
-      FileLogLevel = { default = 2, min = 0, max = 4, format = "floor", comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug." },
-      CustomSystems = {
-        default = {
+      ["_version"] = {"1.2", comment = "Config version. Don't touch."},
+      ["ConsoleLogLevel"] = {2, round = -1, min = 0, max = 4, comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug."},
+      ["FileLogLevel"] = {2, round = -1, min = 0, max = 4, comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug."},
+      ["CustomSystems"] = {
+        {
           lootrangebooster = { name = "RCN-00 Tractor Beam Upgrade MK ${mark}", extra = { mark = "X " } } -- using Tractor Beam Upgrade as an example
         },
         comment = 'Here you can add custom systems. Format: "systemfilename" = { name = "System Display Name MK-${mark}", extra = { mark = "X" } }. "Extra" table holds additional name variables - just replace them all with "X ".'
       },
-      ResearchGroupVolume = { default = 10, min = 5, format = "floor", comment = "Make a slight delay after specified amount of researches to prevent server from hanging." },
-      DelayInterval = { default = 1, min = 0.05, comment = "Delay interval in seconds between research batches." }
+      ["CustomSystems.*.name"] = {"", required = 1, comment = false},
+      ["CustomSystems.*.extra"] = {{}, optional = 1},
+      ["ResearchGroupVolume"] = {10, round = -1, min = 5, comment = "Make a slight delay after specified amount of researches to prevent server from hanging."},
+      ["DelayInterval"] = {1, min = 0.05, comment = "Delay interval in seconds between research batches."}
     }
     local isModified
     AutoResearchConfig, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
-    -- check 'CustomSystems'
-    for k, v in pairs(AutoResearchConfig.CustomSystems) do
-        if type(v) ~= "table" or not v.name then
-            AutoResearchConfig.CustomSystems[k] = nil
-            isModified = true
-        elseif v.extra ~= nil and type(v.extra) ~= "table" then
-            AutoResearchConfig.CustomSystems[k].extra = nil
-            isModified = true
-        end
-    end
     -- upgrade config
     if AutoResearchConfig._version == "1.1" then
         AutoResearchConfig._version = "1.2"
