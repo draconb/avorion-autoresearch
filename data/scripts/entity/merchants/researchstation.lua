@@ -1,50 +1,74 @@
+include("azimuthlib-uiproportionalsplitter")
+local Azimuth = include("azimuthlib-basic")
+local AutoResearchIntegration = include("AutoResearchIntegration")
 
-package.path = package.path .. ";data/scripts/entity/merchants/?.lua;"
-package.path = package.path .. ";data/scripts/lib/?.lua;"
+-- all local variables are outside of 'onClient/onServer' blocks to make them accessible for other mods
+local window, autoResearch_autoButton, autoResearch_itemTypeSelection, autoResearch_raritySelection, autoResearch_minAmountComboBox, autoResearch_maxAmountComboBox, autoResearch_materialSelection, autoResearch_separateAutoCheckBox, separateAutoLabel, autoResearch_typesRect, autoResearch_typesCheckBoxes, autoResearch_allTypesCheckBox -- client UI
+local autoResearch_settingsReceived, autoResearch_systemTypeNames, autoResearch_systemTypeNameIndexes, autoResearch_turretTypeNames, autoResearch_turretTypeByName, autoResearch_typesCache, autoResearch_inProcess -- client
+local autoResearch_type = 0 -- client
+local AutoResearchConfig, AutoResearchLog, autoResearch_systemTypeScripts, autoResearch_playerLocks -- server
+local autoResearch_initialize, autoResearch_onClickResearch -- extended functions
 
-require ("galaxy")
-require ("utility")
-require ("faction")
-require ("player")
-require ("randomext")
-require ("stringutility")
-local SellableInventoryItem = require ("sellableinventoryitem")
-local TurretGenerator = require ("turretgenerator")
-local Dialog = require("dialogutility")
+if onClient() then
 
-local button
 
--- START DRACONIAN
-local autoButton
-local raritySelection
-local systemSelection
--- END DRACONIAN
+autoResearch_systemTypeNames = {
+  "Turret Control System A-TCS-${num}"%_t % {num = "X"},
+  "Battery Upgrade"%_t,
+  "T1M-LRD-Tech Cargo Upgrade MK ${mark}"%_t % {mark = "X"},
+  "Turret Control System C-TCS-${num}"%_t % {num = "X"},
+  "Internal Defense Weapons System IDWS-${num}"%_t % {num = "X"},
+  "Generator Upgrade"%_t,
+  "Energy to Shield Converter"%_t,
+  "Engine Upgrade"%_t,
+  "Quantum ${num}Hyperspace Upgrade"%_t % {num = "X "},
+  --"RCN-00 Tractor Beam Upgrade MK ${mark}"%_t % {mark = "X"},
+  "Turret Control System M-TCS-${num}"%_t % {num = "X"},
+  "Mining System"%_t,
+  "Radar Upgrade"%_t,
+  "Shield Ionizer"%_t,
+  "Scanner Upgrade"%_t,
+  "Shield Booster"%_t,
+  "Shield Reinforcer"%_t,
+  "Trading System"%_t,
+  "Transporter Software"%_t,
+  "C43 Object Detector"%_t,
+  "Velocity Security Control Bypass"%_t,
+  "W-${designation}-Hull Polarizer ${rarity}"%_t % {designation = "X", rarity = "X"},
+  "Xsotan Technology Fragment"%_t
+}
+autoResearch_systemTypeNameIndexes = {}
 
-function initialize()
-    if onClient() and EntityIcon().icon == "" then
-        EntityIcon().icon = "data/textures/icons/pixel/research.png"
-        InteractionText().text = Dialog.generateStationInteractionText(Entity(), random())
+autoResearch_initialize = ResearchStation.initialize
+function ResearchStation.initialize()
+    autoResearch_initialize()
+
+    autoResearch_turretTypeByName = {}
+    autoResearch_turretTypeNames = {}
+    for weaponType, weaponTypeName in pairs(WeaponTypes.nameByType) do
+        autoResearch_turretTypeNames[#autoResearch_turretTypeNames+1] = weaponTypeName
+        autoResearch_turretTypeByName[weaponTypeName] = weaponType
     end
+    table.sort(autoResearch_turretTypeNames)
+
+    invokeServerFunction("autoResearch_sendSettings")
 end
 
-function interactionPossible(playerIndex, option)
-    return CheckFactionInteraction(playerIndex, - 25000)
-end
-
-function initUI()
-
+function ResearchStation.initUI() -- overridden
     local res = getResolution()
-    local size = vec2(800, 600)
+    local size = vec2(980, 600)
 
     local menu = ScriptUI()
-    local window = menu:createWindow(Rect(res * 0.5 - size * 0.5, res * 0.5 + size * 0.5))
+    window = menu:createWindow(Rect(res * 0.5 - size * 0.5, res * 0.5 + size * 0.5))
 
     window.caption = "Research /* station title */"%_t
     window.showCloseButton = 1
     window.moveable = 1
     menu:registerWindow(window, "Research"%_t);
 
-    local hsplit = UIHorizontalSplitter(Rect(window.size), 10, 10, 0.4)
+    local vPartitions = UIVerticalProportionalSplitter(Rect(window.size), 10, 10, {0.5, 250})
+
+    local hsplit = UIHorizontalSplitter(vPartitions[1], 10, 0, 0.4)
 
     inventory = window:createInventorySelection(hsplit.bottom, 11)
 
@@ -72,11 +96,11 @@ function initUI()
     inventory.dragFromEnabled = 1
     inventory.onClickedFunction = "onInventoryClicked"
 
-
     vsplit.padding = 30
     local rect = vsplit.right
     rect.width = 70
     rect.height = 70
+    rect.position = rect.position - vec2(180, 0)
     results = window:createSelection(rect, 1)
     results.entriesSelectable = 0
     results.dropIntoEnabled = 0
@@ -87,523 +111,407 @@ function initUI()
     organizer.marginBottom = 5
 
     button = window:createButton(Rect(), "Research"%_t, "onClickResearch")
-    button.width = 200
-    -- START DRACONIAN
-    --button.height = 40
-    --organizer:placeElementBottom(button)
-    button.height = 20
+    button.maxTextSize = 15
+    button.width = 180
+    button.height = 30
     organizer:placeElementBottomLeft(button)
-    -- END DRACONIAN
+    button.position = button.position + vec2(0, 20)
 
-    -- START DRACONIAN
-    local autoSplitter = UIHorizontalSplitter(vsplit.right, 5, 5, 0.5)
-    raritySelection = window:createComboBox(Rect(), "onRaritySelect")
-    raritySelection.width = 150
-    raritySelection.height = 25
-    autoSplitter:placeElementTopLeft(raritySelection)
+    local autoSplitter = UIHorizontalSplitter(Rect(vsplit.right.lower.x, vsplit.right.lower.y - 15, vsplit.right.upper.x + 15, vsplit.right.upper.y), 5, 5, 0.5)
+    autoResearch_itemTypeSelection = window:createComboBox(Rect(), "autoResearch_onItemTypeChanged")
+    autoResearch_itemTypeSelection.width = 145
+    autoResearch_itemTypeSelection.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_itemTypeSelection)
+    autoResearch_itemTypeSelection:addEntry("Systems"%_t)
+    autoResearch_itemTypeSelection:addEntry("Turrets"%_t)
 
-    raritySelection:addEntry("Common"%_t)
-    raritySelection:addEntry("Uncommon"%_t)
-    raritySelection:addEntry("Rare"%_t)
-    raritySelection:addEntry("Exceptional"%_t)
+    autoResearch_typesRect = vPartitions[2]
+    ResearchStation.autoResearch_finishInitUI()
+    ResearchStation.autoResearch_fillSystems()
 
-    systemSelection = window:createComboBox(Rect(), "onSystemSelect")
-    systemSelection.width = 200
-    systemSelection.height = 30
-    autoSplitter:placeElementTopRight(systemSelection)
+    autoResearch_raritySelection = window:createComboBox(Rect(), "")
+    autoResearch_raritySelection.width = 145
+    autoResearch_raritySelection.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_raritySelection)
+    autoResearch_raritySelection.position = autoResearch_raritySelection.position + vec2(0, 35)
+    autoResearch_raritySelection:addEntry("Common"%_t)
+    autoResearch_raritySelection:addEntry("Uncommon"%_t)
+    autoResearch_raritySelection:addEntry("Rare"%_t)
+    autoResearch_raritySelection:addEntry("Exceptional"%_t)
+    autoResearch_raritySelection:addEntry("Exotic"%_t)
 
-    systemSelection:addEntry("All"%_t)
-    systemSelection:addEntry("Battery Upgrade"%_t)
-    systemSelection:addEntry("Cargo Upgrade"%_t)
-    systemSelection:addEntry("Energy To Shield Converter"%_t)
-    systemSelection:addEntry("Engine Upgrade"%_t)
-    systemSelection:addEntry("Generator Upgrade"%_t)
-    systemSelection:addEntry("Hyperspace Upgrade"%_t)
-    systemSelection:addEntry("Mining System"%_t)
-    systemSelection:addEntry("Object Detector"%_t)
-    systemSelection:addEntry("Radar Upgrade"%_t)
-    systemSelection:addEntry("Scanner Upgrade"%_t)
-    systemSelection:addEntry("Shield Booster"%_t)
-    systemSelection:addEntry("Shield Reinforcer"%_t)
-    systemSelection:addEntry("A-TCS"%_t)
-    systemSelection:addEntry("C-TCS"%_t)
-    systemSelection:addEntry("M-TCS"%_t)
-    systemSelection:addEntry("Technology Fragment"%_t)
-    systemSelection:addEntry("Tractor Beam"%_t)
-    systemSelection:addEntry("Trading System"%_t)
-    systemSelection:addEntry("Velocity Security"%_t)
+    autoResearch_materialSelection = window:createComboBox(Rect(), "")
+    autoResearch_materialSelection.width = 115
+    autoResearch_materialSelection.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_materialSelection)
+    autoResearch_materialSelection.position = autoResearch_materialSelection.position + vec2(-autoResearch_raritySelection.width - 10, 35)
+    autoResearch_materialSelection:addEntry("All"%_t)
+    for i = 1, NumMaterials() do
+        autoResearch_materialSelection:addEntry(Material(i-1).name)
+    end
+    autoResearch_materialSelection.visible = false
 
-    autoButton = window:createButton(Rect(), "Auto Research"%_t, "onStartAutoResearch")
-    autoButton.width = 200
-    autoButton.height = 20
-    autoSplitter:placeElementBottomRight(autoButton)
-    -- END DRACONIAN
+    autoResearch_minAmountComboBox = window:createComboBox(Rect(), "autoResearch_onMinAmountChanged")
+    autoResearch_minAmountComboBox.width = 50
+    autoResearch_minAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_minAmountComboBox)
+    autoResearch_minAmountComboBox.position = autoResearch_minAmountComboBox.position + vec2(0, 70)
+    autoResearch_minAmountComboBox:addEntry(5)
+    autoResearch_minAmountComboBox:addEntry(4)
+    autoResearch_minAmountComboBox:addEntry(3)
+    
+    local amountLabel = window:createLabel(Rect(), "Min amount"%_t, 13)
+    amountLabel.width = 100
+    amountLabel.height = 25
+    autoSplitter:placeElementTopRight(amountLabel)
+    amountLabel.position = amountLabel.position + vec2(-60, 70)
+    amountLabel:setRightAligned()
+    
+    autoResearch_maxAmountComboBox = window:createComboBox(Rect(), "autoResearch_onMaxAmountChanged")
+    autoResearch_maxAmountComboBox.width = 50
+    autoResearch_maxAmountComboBox.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_maxAmountComboBox)
+    autoResearch_maxAmountComboBox.position = autoResearch_maxAmountComboBox.position + vec2(0, 105)
+    autoResearch_maxAmountComboBox:addEntry(5)
+    autoResearch_maxAmountComboBox:addEntry(4)
+    autoResearch_maxAmountComboBox:addEntry(3)
+    
+    amountLabel = window:createLabel(Rect(), "Max amount"%_t, 13)
+    amountLabel.width = 100
+    amountLabel.height = 25
+    autoSplitter:placeElementTopRight(amountLabel)
+    amountLabel.position = amountLabel.position + vec2(-60, 105)
+    amountLabel:setRightAligned()
+    
+    autoResearch_separateAutoCheckBox = window:createCheckBox(Rect(), "", "")
+    autoResearch_separateAutoCheckBox.checked = true
+    autoResearch_separateAutoCheckBox.width = 25
+    autoResearch_separateAutoCheckBox.height = 25
+    autoSplitter:placeElementTopRight(autoResearch_separateAutoCheckBox)
+    autoResearch_separateAutoCheckBox.position = autoResearch_separateAutoCheckBox.position + vec2(0, 140)
+    autoResearch_separateAutoCheckBox.visible = false
+    
+    separateAutoLabel = window:createLabel(Rect(), "Research Auto/Non-auto turrets separately"%_t, 12)
+    separateAutoLabel.width = 320
+    separateAutoLabel.height = 25
+    autoSplitter:placeElementTopRight(separateAutoLabel)
+    separateAutoLabel.position = separateAutoLabel.position + vec2(-35, 137)
+    separateAutoLabel:setRightAligned()
+    separateAutoLabel.visible = false
+
+    autoResearch_autoButton = window:createButton(Rect(), "Auto Research"%_t, "autoResearch_onStartAutoResearch")
+    autoResearch_autoButton.maxTextSize = 15
+    autoResearch_autoButton.width = 200
+    autoResearch_autoButton.height = 30
+    autoSplitter:placeElementBottomRight(autoResearch_autoButton)
+    autoResearch_autoButton.position = autoResearch_autoButton.position + vec2(0, 20)
 end
 
-function removeItemFromMainSelection(key)
-    local item = inventory:getItem(key)
-    if not item then return end
+function ResearchStation.autoResearch_onItemTypeChanged()
+    if autoResearch_itemTypeSelection.selectedIndex == 0 then -- Systems
+        if autoResearch_type ~= 0 then
+            ResearchStation.autoResearch_fillSystems()
 
-    if item.amount then
-        item.amount = item.amount - 1
-        if item.amount == 0 then item.amount = nil end
+            autoResearch_materialSelection.visible = false
+            autoResearch_separateAutoCheckBox.visible = false
+            separateAutoLabel.visible = false
+            autoResearch_type = 0
+        end
+    else -- Turrets
+        if autoResearch_type ~= 1 then
+            local allStatus = true
+            -- save selected turret types
+            for i = 1, #autoResearch_systemTypeNames do
+                autoResearch_typesCache.systems[i] = autoResearch_typesCheckBoxes[i].element.checked
+            end
+            -- restore selected system types
+            for i = 1, #autoResearch_turretTypeNames do
+                local checkBox = autoResearch_typesCheckBoxes[i]
+                checkBox.caption = autoResearch_turretTypeNames[i]
+                checkBox.element.caption = checkBox.caption
+                checkBox.element.visible = true
+                if not autoResearch_typesCache.turrets[i] then
+                    allStatus = false
+                end
+                checkBox.element:setCheckedNoCallback(autoResearch_typesCache.turrets[i])
+            end
+            for i = #autoResearch_turretTypeNames + 1, #autoResearch_typesCheckBoxes do
+                autoResearch_typesCheckBoxes[i].element.visible = false
+            end
+            autoResearch_allTypesCheckBox:setCheckedNoCallback(allStatus)
+
+            autoResearch_materialSelection.visible = true
+            autoResearch_separateAutoCheckBox.visible = true
+            separateAutoLabel.visible = true
+            autoResearch_type = 1
+        end
     end
-
-    inventory:remove(key)
-
-    if item.amount then
-        inventory:add(item, key)
-    end
-
 end
 
-function addItemToMainSelection(item)
-    if not item then return end
+function ResearchStation.autoResearch_onMinAmountChanged()
+    local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        autoResearch_maxAmountComboBox.selectedIndex = autoResearch_minAmountComboBox.selectedIndex
+    end
+end
 
-    if item.item.stackable then
-        -- find the item and increase the amount
-        for k, v in pairs(inventory:getItems()) do
-            if v.item == item.item then
-                v.amount = v.amount + 1
+function ResearchStation.autoResearch_onMaxAmountChanged()
+    local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry)
+    local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry)
+    if minAmount > maxAmount then
+        autoResearch_minAmountComboBox.selectedIndex = autoResearch_maxAmountComboBox.selectedIndex
+    end
+end
 
-                inventory:remove(k)
-                inventory:add(v, k)
-                return
+autoResearch_onClickResearch = ResearchStation.onClickResearch
+function ResearchStation.onClickResearch(...)
+    if autoResearch_inProcess then return end
+
+    autoResearch_onClickResearch(...)
+end
+
+function ResearchStation.autoResearch_onStartAutoResearch()
+    if not autoResearch_inProcess then
+        local itemType = autoResearch_itemTypeSelection.selectedIndex
+        -- get system/turret indexex
+        local selectedTypes = {}
+        local hasTypes = false
+        if itemType == 0 then
+            for i = 1, #autoResearch_systemTypeNames do
+                local checkBox = autoResearch_typesCheckBoxes[i]
+                if checkBox.element.checked then
+                    selectedTypes[autoResearch_systemTypeNameIndexes[checkBox.caption]] = true
+                    hasTypes = true
+                end
+            end
+        else
+            for i = 1, #autoResearch_turretTypeNames do
+                local checkBox = autoResearch_typesCheckBoxes[i]
+                if checkBox.element.checked then
+                    selectedTypes[autoResearch_turretTypeByName[checkBox.caption]] = true
+                    hasTypes = true
+                end
             end
         end
+        if not hasTypes then return end -- no types selected
 
-        item.amount = 1
+        local minAmount = tonumber(autoResearch_minAmountComboBox.selectedEntry) or 5
+        local maxAmount = tonumber(autoResearch_maxAmountComboBox.selectedEntry) or 5
+        local materialType = autoResearch_materialSelection.selectedIndex - 1
+        local separateAutoTurrets = autoResearch_separateAutoCheckBox.checked
+        autoResearch_inProcess = true
+        autoResearch_autoButton.caption = "Stop Auto Research"%_t
+
+        invokeServerFunction("autoResearch_autoResearch", Rarity(autoResearch_raritySelection.selectedIndex).value, itemType, selectedTypes, materialType, minAmount, maxAmount, separateAutoTurrets)
+    else -- stop auto research
+        invokeServerFunction("autoResearch_stopAutoResearch")
     end
-
-    -- when not found or not stackable, add it
-    inventory:add(item)
-
 end
 
-function moveItem(item, from, to, fkey, tkey)
-    if not item then return end
-
-    if from.index == inventory.index then -- move from inventory to a selection
-        -- first, move the item that might be in place back to the inventory
-        if tkey then
-            addItemToMainSelection(to:getItem(tkey))
-            to:remove(tkey)
+function ResearchStation.autoResearch_fillSystems()
+    if autoResearch_settingsReceived and autoResearch_typesRect then -- if settings were already received and ui is ready
+        local allStatus = true
+        -- save selected turret types
+        for i = 1, #autoResearch_turretTypeNames do
+            autoResearch_typesCache.turrets[i] = autoResearch_typesCheckBoxes[i].element.checked
         end
-
-        removeItemFromMainSelection(fkey)
-
-        -- fix item amount, we don't want numbers in the upper selections
-        item.amount = nil
-        to:add(item, tkey)
-
-    elseif to.index == inventory.index then
-        -- move from selection to inventory
-        addItemToMainSelection(item)
-        from:remove(fkey)
-    end
-end
-
-function onRequiredReceived(selectionIndex, fkx, fky, item, fromIndex, toIndex, tkx, tky)
-    if not item then return end
-
-    -- don't allow dragging from/into the left hand selections
-    if fromIndex == optional.index or fromIndex == required.index then
-        return
-    end
-
-    moveItem(item, inventory, Selection(selectionIndex), ivec2(fkx, fky), ivec2(tkx, tky))
-
-    refreshButton()
-    results:clear()
-    results:addEmpty()
-end
-
-function onRequiredClicked(selectionIndex, fkx, fky, item, button)
-    if button == 3 or button == 2 then
-        moveItem(item, Selection(selectionIndex), inventory, ivec2(fkx, fky), nil)
-        refreshButton()
-    end
-end
-
-function onRequiredDropped(selectionIndex, kx, ky)
-    local selection = Selection(selectionIndex)
-    local key = ivec2(kx, ky)
-    moveItem(selection:getItem(key), Selection(selectionIndex), inventory, key, nil)
-    refreshButton()
-end
-
-function onInventoryClicked(selectionIndex, kx, ky, item, button)
-
-    if button == 2 or button == 3 then
-        -- fill required first, then, once it's full, fill optional
-        local items = required:getItems()
-        if tablelength(items) < 3 then
-            moveItem(item, inventory, required, ivec2(kx, ky), nil)
-
-            refreshButton()
-            results:clear()
-            results:addEmpty()
-            return
+        -- restore selected system types
+        for i = 1, #autoResearch_systemTypeNames do
+            local checkBox = autoResearch_typesCheckBoxes[i]
+            checkBox.caption = autoResearch_systemTypeNames[i]
+            checkBox.element.caption = checkBox.caption
+            checkBox.element.visible = true
+            if not autoResearch_typesCache.systems[i] then
+                allStatus = false
+            end
+            checkBox.element:setCheckedNoCallback(autoResearch_typesCache.systems[i])
         end
+        for i = #autoResearch_systemTypeNames + 1, #autoResearch_typesCheckBoxes do
+            autoResearch_typesCheckBoxes[i].element.visible = false
+        end
+        autoResearch_allTypesCheckBox:setCheckedNoCallback(allStatus)
+    end
+end
 
-        local items = optional:getItems()
-        if tablelength(items) < 2 then
-            moveItem(item, inventory, optional, ivec2(kx, ky), nil)
-
-            refreshButton()
-            results:clear()
-            results:addEmpty()
-            return
+function ResearchStation.autoResearch_finishInitUI()
+    if autoResearch_settingsReceived and autoResearch_typesRect then
+        local scrollFrame = window:createScrollFrame(autoResearch_typesRect)
+        scrollFrame.scrollSpeed = 40
+        local lister = UIVerticalLister(Rect(0, 0, autoResearch_typesRect.width, autoResearch_typesRect.height), 10, 10)
+        lister.marginRight = 30
+        local rect = lister:placeCenter(vec2(lister.inner.width, 26))
+        autoResearch_allTypesCheckBox = scrollFrame:createCheckBox(Rect(rect.lower, rect.upper + vec2(0, -1)), "All"%_t, "autoResearch_selectAllTypes")
+        autoResearch_allTypesCheckBox.fontSize = 11
+        autoResearch_allTypesCheckBox.captionLeft = false
+        autoResearch_allTypesCheckBox:setCheckedNoCallback(true)
+        local line = scrollFrame:createLine(vec2(rect.lower.x, rect.upper.y), rect.upper)
+        local linesAmount = math.max(#autoResearch_systemTypeNames, #autoResearch_turretTypeNames)
+        autoResearch_typesCheckBoxes = {}
+        for i = 1, linesAmount do
+            rect = lister:placeCenter(vec2(lister.inner.width, 25))
+            local checkBox = scrollFrame:createCheckBox(rect, "", "autoResearch_onTypeCheckBox")
+            checkBox.fontSize = 11
+            checkBox.captionLeft = false
+            checkBox:setCheckedNoCallback(true)
+            autoResearch_typesCheckBoxes[i] = { element = checkBox }
         end
     end
 end
 
-function refreshButton()
-    local items = required:getItems()
-    button.active = (tablelength(items) == 3)
-
-    if tablelength(items) ~= 3 then
-        button.tooltip = "Place at least 3 items for research!"%_t
+function ResearchStation.autoResearch_onTypeCheckBox(checkBox)
+    if not checkBox.checked then
+        autoResearch_allTypesCheckBox:setCheckedNoCallback(false)
     else
-        button.tooltip = "Transform into a new item"%_t
-    end
-
-    for _, items in pairs({items, optional:getItems()}) do
-        for _, item in pairs(items) do
-            if item.item.itemType ~= InventoryItemType.TurretTemplate
-            and item.item.itemType ~= InventoryItemType.SystemUpgrade
-            and item.item.itemType ~= InventoryItemType.Turret then
-
-                button.active = false
-                button.tooltip = "Invalid items in ingredients."%_t
+        local allStatus = true
+        local num = autoResearch_type == 0 and #autoResearch_systemTypeNames or #autoResearch_turretTypeNames
+        for i = 1, num do
+            if not autoResearch_typesCheckBoxes[i].element.checked then
+                allStatus = false
+                break
             end
         end
+        autoResearch_allTypesCheckBox:setCheckedNoCallback(allStatus)
     end
-
 end
 
-function onShowWindow()
-
-    inventory:clear()
-    required:clear()
-    optional:clear()
-
-    required:addEmpty()
-    required:addEmpty()
-    required:addEmpty()
-
-    optional:addEmpty()
-    optional:addEmpty()
-
-    results:addEmpty()
-
-    refreshButton()
-
-    for i = 1, 50 do
-        inventory:addEmpty()
+function ResearchStation.autoResearch_selectAllTypes(checkBox)
+    local checked = checkBox.checked
+    local num = autoResearch_type == 0 and #autoResearch_systemTypeNames or #autoResearch_turretTypeNames
+    for i = 1, num do
+        autoResearch_typesCheckBoxes[i].element:setCheckedNoCallback(checked)
     end
-
-    local player = Player()
-    local ship = player.craft
-    local alliance = player.alliance
-
-    if alliance and ship.factionIndex == player.allianceIndex then
-        inventory:fill(alliance.index)
-    else
-        inventory:fill(player.index)
-    end
-
 end
 
-function checkRarities(items) -- items must not be more than 1 rarity apart
-    local min = math.huge
-    local max = -math.huge
+function ResearchStation.autoResearch_autoResearchComplete()
+    autoResearch_inProcess = false
+    autoResearch_autoButton.caption = "Auto Research"%_t
+end
 
-    for _, item in pairs(items) do
-        if item.rarity.value < min then min = item.rarity.value end
-        if item.rarity.value > max then max = item.rarity.value end
+function ResearchStation.autoResearch_receiveSettings(systems)
+    for i = 1, #systems do
+        local system = systems[i]
+        autoResearch_systemTypeNames[#autoResearch_systemTypeNames+1] = (system.name%_t) % (system.extra or {})
     end
-
-    if max - min <= 1 then
-        return true
+    -- and now sort system names
+    for i = 1, #autoResearch_systemTypeNames do
+        autoResearch_systemTypeNameIndexes[autoResearch_systemTypeNames[i]] = i
     end
-
-    return false
-end
-
-function getRarityProbabilities(items)
-
-    local probabilities = {}
-
-    -- for each item there is a 20% chance that the researched item has a rarity 1 better
-    for _, item in pairs(items) do
-        -- next rarity cannot exceed legendary
-        local nextRarity = math.min(RarityType.Legendary, item.rarity.value + 1)
-
-        local p = probabilities[nextRarity] or 0
-        p = p + 0.2
-        probabilities[nextRarity] = p
-    end
-
-    -- if the amount of items is < 5 then add their own rarities as a result as well
-    if #items < 5 then
-        local left = (1.0 - #items * 0.2)
-        local perItem = left / #items
-
-        for _, item in pairs(items) do
-            local p = probabilities[item.rarity.value] or 0
-            p = p + perItem
-            probabilities[item.rarity.value] = p
-        end
-    end
-
-    local sum = 0
-    for _, p in pairs(probabilities) do
-        sum = sum + p
-    end
-
-    return probabilities
-end
-
-function getTypeProbabilities(items)
-    local probabilities = {}
-
-    for _, item in pairs(items) do
-        local p = probabilities[item.itemType] or 0
-        p = p + 1
-        probabilities[item.itemType] = p
-    end
-
-    return probabilities
-end
-
--- since there are no more exact weapon types in the finished weapons,
--- we have to gather the weapon types by their stats, such as icons
-function getWeaponTypesByIcon()
-    if weaponTypes then return weaponTypes end
-    weaponTypes = {}
-
-    local weapons = Balancing_GetWeaponProbability(0, 0)
-
-    for weaponType, _ in pairs(weapons) do
-        local turret = GenerateTurretTemplate(Seed(1), weaponType, 15, 5, Rarity(RarityType.Common), Material(MaterialType.Iron))
-        weaponTypes[turret.weaponIcon] = weaponType
-    end
-
-    return weaponTypes
-end
-
-function getWeaponProbabilities(items)
-    local probabilities = {}
-    local typesByIcons = getWeaponTypesByIcon()
-
-    for _, item in pairs(items) do
-        if item.itemType == InventoryItemType.Turret
-        or item.itemType == InventoryItemType.TurretTemplate then
-
-            local weaponType = typesByIcons[item.weaponIcon]
-            local p = probabilities[weaponType] or 0
-            p = p + 1
-            probabilities[weaponType] = p
-        end
-    end
-
-    return probabilities
-end
-
-function getWeaponMaterials(items)
-    local probabilities = {}
-
-    for _, item in pairs(items) do
-        if item.itemType == InventoryItemType.Turret
-        or item.itemType == InventoryItemType.TurretTemplate then
-
-            local p = probabilities[item.material.value] or 0
-            p = p + 1
-            probabilities[item.material.value] = p
-        end
-    end
-
-    return probabilities
-end
-
-function getAutoFires(items)
-    local probabilities = {}
-
-    for _, item in pairs(items) do
-        if item.itemType == InventoryItemType.Turret
-        or item.itemType == InventoryItemType.TurretTemplate then
-
-            local p = probabilities[item.automatic] or 0
-            p = p + 1
-            probabilities[item.automatic] = p
-        end
-    end
-
-    return probabilities
-end
-
-function getSystemProbabilities(items)
-    local probabilities = {}
-
-    for _, item in pairs(items) do
-        if item.itemType == InventoryItemType.SystemUpgrade then
-            local p = probabilities[item.script] or 0
-            p = p + 1
-            probabilities[item.script] = p
-        end
-    end
-
-    return probabilities
-end
-
-
-
-
-
-function onClickResearch()
-
-    local items = {}
-    local itemIndices = {}
-
-    for _, item in pairs(required:getItems()) do
-        table.insert(items, item.item)
-
-        local amount = itemIndices[item.index] or 0
-        amount = amount + 1
-        itemIndices[item.index] = amount
-    end
-    for _, item in pairs(optional:getItems()) do
-        table.insert(items, item.item)
-
-        local amount = itemIndices[item.index] or 0
-        amount = amount + 1
-        itemIndices[item.index] = amount
-    end
-
-    if not checkRarities(items) then
-        displayChatMessage("Your items cannot be more than one rarity apart!"%_t, Entity().title, 1)
-        return
-    end
-
-    invokeServerFunction("research", itemIndices)
-end
-
--- START DRACONIAN
--- Auto Research
-function getUIRarity()
-    return Rarity(raritySelection.selectedIndex).value
-end
-
-function getUISystems()
-    return systemSelection.selectedEntry
-end
-
-function onStartAutoResearch()
-    autoButton.active = false
-    local maxRarity = getUIRarity()
-    local systemType = getUISystems()
-    --print ("Rarity", maxRarity, "Systems", systemType)
-    invokeServerFunction("autoResearch", maxRarity, systemType)
-end
-
-function onRaritySelect()
-    -- TODO: Something here?
-end
-
-
-function onSystemSelect()
-    -- TODO: Something here?
-end
-
-function autoResearchComplete()
-    autoButton.active = true
-end
-
-function autoResearch(maxRarity, systemType)
-    -- inventory:clear()
-    -- for i = 1, 50 do
-    --     inventory:addEmpty()
-    -- end
-
-    -- local player = Player()
-    -- local ship = player.craft
-    -- local alliance = player.alliance
+    table.sort(autoResearch_systemTypeNames)
     --
-    -- if alliance and ship.factionIndex == player.allianceIndex then
-    --     inventory:fill(alliance.index)
-    -- else
-    --     inventory:fill(player.index)
-    -- end
-
-    -- item.item.itemType == InventoryItemType.SystemUpgrade
-    -- getItemsByType(InventoryItemType type)
-
-    local items = {}
-    local itemIndices = {}
-    local player
-    local min = 5
-    local max = 5
-
-    items, itemIndices, player = getIndices(RarityType.Petty, min, max, systemType)
-    if (#items < min) then
-        --print ("Need to check common", systemType)
-        items, itemIndices = getIndices(RarityType.Common, min, max, systemType)
+    autoResearch_typesCache = { systems = {}, turrets = {} }
+    for i = 1, #autoResearch_systemTypeNames do
+        autoResearch_typesCache.systems[i] = true
     end
-    if (#items < min and maxRarity >= RarityType.Uncommon) then
-        --print ("Need to check uncommon", systemType)
-        items, itemIndices = getIndices(RarityType.Uncommon, min, max, systemType)
+    for i = 1, #autoResearch_turretTypeNames do
+        autoResearch_typesCache.turrets[i] = true
     end
-    if (#items < min and maxRarity >= RarityType.Rare) then
-        --print ("Need to check rare", systemType)
-        items, itemIndices = getIndices(RarityType.Rare, min, max, systemType)
-    end
-    if (#items < min and maxRarity >= RarityType.Exceptional) then
-        --print ("Need to check exceptional", systemType)
-        items, itemIndices = getIndices(RarityType.Exceptional, min, max, systemType)
-    end
-
-
-    --local common = getSystemsByRarity(RarityType.Common)
-    --local uncommon = getSystemsByRarity(RarityType.Uncommon)
-    --local rare = getSystemsByRarity(RarityType.Rare)
-
-    -- local inventory = Faction(factionIndex):getInventory()
-    -- local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
     --
-    -- for i, inventoryItem in pairs(inventoryItems) do
-    --     if (inventoryItem.item.rarity < RarityType.Rare) then
-    --         print (i, tostring(inventoryItem.item.name))
-    --     end
-    -- end
-
-    if (#items >= min) then
-        research(itemIndices)
-        -- Lets loop it!
-        -- We want to make sure the inventory index doesn't pick the wrong item so thats why we don't do it in bulk oringinally
-        autoResearch(maxRarity, systemType)
-    else
-        --print ("Only have", #items, "items")
-        invokeClientFunction(player, "autoResearchComplete")
-    end
+    autoResearch_settingsReceived = true
+    -- and add them to the combo box
+    ResearchStation.autoResearch_finishInitUI()
+    ResearchStation.autoResearch_fillSystems()
 end
 
-function getIndices(rarity, min, max, systemType)
+
+else -- onServer
+
+
+autoResearch_systemTypeScripts = {
+  "arbitrarytcs",
+  "batterybooster",
+  "cargoextension",
+  "civiltcs",
+  "defensesystem",
+  "energybooster",
+  "energytoshieldconverter",
+  "enginebooster",
+  "hyperspacebooster",
+  --"lootrangebooster",
+  "militarytcs",
+  "miningsystem",
+  "radarbooster",
+  "scannerbooster",
+  "shieldbooster",
+  "shieldimpenetrator",
+  "tradingoverview",
+  "transportersoftware",
+  "valuablesdetector",
+  "velocitybypass",
+  "wormholeopener"
+}
+autoResearch_playerLocks = {} -- save player index in order to prevent from starting 2 researches at the same time
+
+autoResearch_initialize = ResearchStation.initialize
+function ResearchStation.initialize()
+    autoResearch_initialize()
+
+    local configOptions = {
+      ["_version"] = {"1.2", comment = "Config version. Don't touch."},
+      ["ConsoleLogLevel"] = {2, round = -1, min = 0, max = 4, comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug."},
+      ["FileLogLevel"] = {2, round = -1, min = 0, max = 4, comment = "0 - Disable, 1 - Errors, 2 - Warnings, 3 - Info, 4 - Debug."},
+      ["CustomSystems"] = {
+        {
+          lootrangebooster = { name = "RCN-00 Tractor Beam Upgrade MK ${mark}", extra = { mark = "X " } } -- using Tractor Beam Upgrade as an example
+        },
+        comment = 'Here you can add custom systems. Format: "systemfilename" = { name = "System Display Name MK-${mark}", extra = { mark = "X" } }. "Extra" table holds additional name variables - just replace them all with "X ".'
+      },
+      ["CustomSystems.*.name"] = {"", required = 1, comment = false},
+      ["CustomSystems.*.extra"] = {{}, optional = 1},
+      ["ResearchGroupVolume"] = {10, round = -1, min = 5, comment = "Make a slight delay after specified amount of researches to prevent server from hanging."},
+      ["DelayInterval"] = {1, min = 0.05, comment = "Delay interval in seconds between research batches."}
+    }
+    local isModified
+    AutoResearchConfig, isModified = Azimuth.loadConfig("AutoResearch", configOptions)
+    -- upgrade config
+    if AutoResearchConfig._version == "1.1" then
+        AutoResearchConfig._version = "1.2"
+        isModified = true
+        AutoResearchConfig.ResearchGroupVolume = 10
+        AutoResearchConfig.DelayInterval = 1
+    end
+    if isModified then
+        Azimuth.saveConfig("AutoResearch", AutoResearchConfig, configOptions)
+    end
+    AutoResearchLog = Azimuth.logs("AutoResearch", AutoResearchConfig.ConsoleLogLevel, AutoResearchConfig.FileLogLevel)
+
+    -- add custom systems
+    local systemNameList = {}
+    for k, v in pairs(AutoResearchIntegration) do
+        autoResearch_systemTypeScripts[#autoResearch_systemTypeScripts+1] = k
+        systemNameList[#systemNameList+1] = v
+    end
+    for k, v in pairs(AutoResearchConfig.CustomSystems) do
+        autoResearch_systemTypeScripts[#autoResearch_systemTypeScripts+1] = k
+        systemNameList[#systemNameList+1] = v
+    end
+    -- clients only need display names
+    AutoResearchConfig.CustomSystems = systemNameList
+end
+
+function ResearchStation.autoResearch_getIndices(inventory, rarity, min, max, itemType, selectedTypes, materialType, isAutoFire)
     local items = {}
     local itemIndices = {}
+    local grouped
+    if itemType == 0 then
+        grouped = ResearchStation.autoResearch_getSystemsByRarity(inventory, rarity, selectedTypes)
+    else
+        grouped = ResearchStation.autoResearch_getTurretsByRarity(inventory, rarity, selectedTypes, materialType, isAutoFire - 1)
+    end
+
     local researchTime = false
-    local grouped, player = getSystemsByRarity(rarity, systemType)
-
-    --print ("Found", #grouped, rarity)
-    for g, group in pairs(grouped) do
-        --print ("Group Count", #group)
-        itemIndices = {}
-        items = {}
+    for _, group in pairs(grouped) do
         if #group >= min then
-            for i, itemInfo in pairs(group) do
-                --print (i, itemInfo.item.name, itemInfo.index)
+            itemIndices = {}
+            items = {}
+            for i, itemInfo in ipairs(group) do
                 items[i] = itemInfo.item
-                itemIndices[itemInfo.index] = 1
+                local itemIndex = itemIndices[itemInfo.index]
+                if not itemIndex then
+                    itemIndices[itemInfo.index] = 1
+                else
+                    itemIndices[itemInfo.index] = itemIndex + 1
+                end
                 if #items == max then
                     researchTime = true
                     break
@@ -612,225 +520,263 @@ function getIndices(rarity, min, max, systemType)
             if researchTime then break end
         end
     end
-    local itemIndicesCount = 0
-    for i, idx in pairs(itemIndices) do
-        itemIndicesCount = itemIndicesCount + 1
-    end
-    --print ("Found items", #items, rarity, itemIndicesCount)
 
-    return items, itemIndices, player
+    return items, itemIndices
 end
 
-function getSystemsByRarity(rarityType, systemType)
-    local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
-    -- local faction = Faction(factionIndex)
-    local inventory = buyer:getInventory()
+function ResearchStation.autoResearch_getSystemsByRarity(inventory, rarityType, selectedTypes)
     local inventoryItems = inventory:getItemsByType(InventoryItemType.SystemUpgrade)
     local grouped = {}
-    --print ("Rarity Type", rarityType)
-    --print ("Inventory Items", #inventoryItems)
-    --print("Inventory Items", tostring(inventoryItems[0]), tostring(inventoryItems[1]), tostring(inventoryItems[2]), tostring(inventoryItems[3]))
-    --printObj({inventoryItems})
 
     for i, inventoryItem in pairs(inventoryItems) do
         if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite)
-        and (systemType == "All" or inventoryItem.item.name:find(systemType)) then
-            --print ("Item [" .. i .. "]", inventoryItem.item.name, inventoryItem.item.rarity.value, inventoryItem.item.seed.int32)
-            local existing = grouped[inventoryItem.item.name]
+          and selectedTypes[inventoryItem.item.script] then
+            local existing = grouped[inventoryItem.item.script]
             if existing == nil then
-                --print ("Adding new item", inventoryItem.item.name)
-                grouped[inventoryItem.item.name] = {}
-                grouped[inventoryItem.item.name][1] = { item = inventoryItem.item, index = i } --.seed.int32
-            else
-                --print ("Adding to existing", tostring(inventoryItem.item.name))
-                existing[#existing + 1] = { item = inventoryItem.item, index = i } --.seed.int32
+                grouped[inventoryItem.item.script] = {}
+                existing = grouped[inventoryItem.item.script]
             end
-            -- printObj(inventoryItem)
-            -- print(inventoryItem.item)
-            --print("Inventory Item", tostring(inventoryItem[0]), tostring(inventoryItem[1]), tostring(inventoryItem[2]), tostring(inventoryItem[3]))
-        end
-    end
-
-    return grouped, player
-end
-
-function printObj(obj, hierarchyLevel)
-    if (hierarchyLevel == nil) then
-        hierarchyLevel = 0
-    elseif (hierarchyLevel == 4) then
-        return 0
-    end
-
-    -- for key, value in pairs(obj) do
-    --     print("found member " .. tostring(key), tostring(value));
-    -- end
-    local whitespace = ""
-    for i = 0, hierarchyLevel, 1 do
-        whitespace = whitespace .. "-"
-    end
-
-    print(whitespace, tostring(obj))
-    if (type(obj) == 'table') then
-        for k, v in pairs(obj) do
-            if k > 10 then break end
-            io.write(whitespace .. "-")
-            if (type(v) == 'table') and hierarchyLevel < 1 then
-                printObj(v, hierarchyLevel + 1)
-            else
-                print(v)
+            -- Systems can stack now
+            local length = math.min(inventoryItem.amount, 5 - #existing)
+            for j = 1, length do
+                existing[#existing + 1] = { item = inventoryItem.item, index = i }
+            end
+            if #existing == 5 then -- no need to search for more, we already have 5 systems
+                AutoResearchLog:Debug("Systems (cycle): %s", existing)
+                return {existing}
             end
         end
-    else
-        print(obj)
     end
+
+    AutoResearchLog:Debug("Systems (end): %s", grouped)
+    return grouped
 end
 
--- END DRACONIAN
+function ResearchStation.autoResearch_getTurretsByRarity(inventory, rarityType, selectedTypes, materialType, isAutoFire)
+    local inventoryItems = inventory:getItemsByType(InventoryItemType.Turret)
+    local turretTemplates = inventory:getItemsByType(InventoryItemType.TurretTemplate)
+    for i, inventoryItem in pairs(turretTemplates) do
+        inventoryItems[i] = inventoryItem
+    end
+    local grouped = {}
 
-function research(itemIndices)
+    local selectedKey
+    for i, inventoryItem in pairs(inventoryItems) do
+        if (inventoryItem.item.rarity.value == rarityType and not inventoryItem.item.favorite) then
+            if isAutoFire == -1 or (isAutoFire == 0 and not inventoryItem.item.automatic) or (isAutoFire == 1 and inventoryItem.item.automatic) then
+                local weaponType = WeaponTypes.getTypeOfItem(inventoryItem.item)
+                local materialValue = inventoryItem.item.material.value
+                if selectedTypes[weaponType] and (not materialType or materialValue <= materialType) then
+                    local groupKey = materialValue.."_"..weaponType
+                    if not selectedKey or groupKey == selectedKey then
+                        local existing = grouped[groupKey] -- group by material, no need to mix iron and avorion
+                        if existing == nil then
+                            grouped[groupKey] = {}
+                            existing = grouped[groupKey]
+                        end
+                        for j = 1, inventoryItem.amount do
+                            existing[#existing+1] = { item = inventoryItem.item, index = i }
+                        end
+                        if not selectedKey and #existing >= 5 then -- we have 5+ of that turret type + material, just focus on these and remove others
+                            selectedKey = groupKey
+                            grouped = { [selectedKey] = existing }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- sort groups so low-dps weapons will be researched first
+    for materialValue, group in pairs(grouped) do
+        table.sort(group, function(a, b) return a.item.dps < b.item.dps end)
+    end
+
+    return grouped
+end
+
+function ResearchStation.autoResearch_sendSettings()
+    invokeClientFunction(Player(callingPlayer), "autoResearch_receiveSettings", AutoResearchConfig.CustomSystems)
+end
+callable(ResearchStation, "autoResearch_sendSettings")
+
+function ResearchStation.autoResearch_autoResearch(maxRarity, itemType, selectedTypes, materialType, minAmount, maxAmount, separateAutoTurrets)
+    maxRarity = tonumber(maxRarity)
+    itemType = tonumber(itemType)
+    materialType = tonumber(materialType)
+    if anynils(maxRarity, itemType, selectedTypes, materialType) then return end
+    minAmount = tonumber(minAmount) or 5
+    maxAmount = tonumber(maxAmount) or 5
+    minAmount = math.min(minAmount, maxAmount)
+    maxAmount = math.max(minAmount, maxAmount)
 
     local buyer, ship, player = getInteractingFaction(callingPlayer, AlliancePrivilege.SpendResources)
-    if not buyer then return end
-
-    -- check if the player has enough of the items
-    local items = {}
-
-    for index, amount in pairs(itemIndices) do
-        local item = buyer:getInventory():find(index)
-        local has = buyer:getInventory():amount(index)
-
-        if not item or has < amount then
-            player:sendChatMessage(Entity().title, 1, "You dont have enough items!"%_t)
-            return
-        end
-
-        for i = 1, amount do
-            table.insert(items, item)
-        end
-    end
-
-    if #items < 3 then
-        player:sendChatMessage(Entity().title, 1, "You need at least 3 items to do research!"%_t)
+    if not player then return end
+    if not buyer then
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
         return
     end
 
-    if not checkRarities(items) then
-        player:sendChatMessage(Entity().title, 1, "Your items cannot be more than one rarity apart!"%_t)
+    if autoResearch_playerLocks[callingPlayer] then -- auto research is already going
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
+        return
+    end
+    autoResearch_playerLocks[callingPlayer] = true
+    
+    -- Get System Upgrade script path from selectedIndex
+    if itemType == 0 then
+        local selectedSystems = {}
+        for systemType in pairs(selectedTypes) do
+            systemType = autoResearch_systemTypeScripts[math.max(1, math.min(#autoResearch_systemTypeScripts, systemType))]
+            if systemType then
+                selectedSystems["data/scripts/systems/"..systemType..".lua"] = true
+            end
+        end
+        selectedTypes = selectedSystems
+    end
+
+    if materialType == -1 then
+        materialType = nil
+    end
+
+    local inventory = buyer:getInventory() -- get just once
+    AutoResearchLog:Debug("Player %i - Research started", callingPlayer)
+    local result = deferredCallback(0, "autoResearch_deferred", callingPlayer, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, {{},{}})
+    if not result then
+        AutoResearchLog:Error("Player %i - Failed to defer research", callingPlayer)
+        autoResearch_playerLocks[callingPlayer] = nil
+        invokeClientFunction(player, "autoResearch_autoResearchComplete")
+    end
+end
+callable(ResearchStation, "autoResearch_autoResearch")
+
+function ResearchStation.autoResearch_stopAutoResearch()
+    autoResearch_playerLocks[callingPlayer] = 2 -- mark to stop
+end
+callable(ResearchStation, "autoResearch_stopAutoResearch")
+
+function ResearchStation.autoResearch_deferred(playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, skipRarities)
+    if AutoResearchLog.isDebug then
+        AutoResearchLog:Debug("Player %i - Another iteration: inv %s, separate %s, min %i, max %i, itemtype %i, system %s, material %s, skipRarities %s", playerIndex, tostring(inventory), tostring(separateAutoTurrets), minAmount, maxAmount, itemType, Azimuth.serialize(selectedTypes), tostring(materialType), Azimuth.serialize(skipRarities))
+    end
+
+    if not Server():isOnline(playerIndex) then -- someone got bored and left..
+        AutoResearchLog:Debug("Player %i - End of research (player offline/away)", playerIndex)
+        autoResearch_playerLocks[playerIndex] = nil -- unlock
         return
     end
 
-    local station = Entity()
+    local player = Player(playerIndex)
 
-    local errors = {}
-    errors[EntityType.Station] = "You must be docked to the station to research items."%_T
-    errors[EntityType.Ship] = "You must be closer to the ship to research items."%_T
-    if not CheckPlayerDocked(player, station, errors) then
-        return
+    local items, itemIndices, itemsLength, isResearchFine, researchCode
+    local separateCounter = 1
+    if itemType == 1 and separateAutoTurrets then
+        separateCounter = 2
     end
-
-    local result = transform(items)
-
-    if result then
-        for index, amount in pairs(itemIndices) do
-            for i = 1, amount do
-                buyer:getInventory():take(index)
+    local timer
+    if AutoResearchLog.isDebug then
+        timer = HighResolutionTimer()
+        timer:start()
+    end
+    local j = 1
+    callingPlayer = playerIndex -- make server think that player invoked usual research
+    for i = 1, separateCounter do -- if itemType is turret, research independently 2 times (no auto fire and auto fire)
+        local separateValue = i
+        if not separateAutoTurrets then
+            separateValue = 0 -- will turn into -1
+        end
+        while true do
+            if j == AutoResearchConfig.ResearchGroupVolume then -- we need to make a small delay to prevent script from hanging
+                goto autoResearch_finish
             end
-        end
-
-        buyer:getInventory():add(result)
-
-        invokeClientFunction(player, "receiveResult", result)
-    else
-        print ("no result")
-    end
-
-
-end
-
-function researchTest(...)
-    local indices = {}
-
-    for _, index in pairs({...}) do
-        local amount = indices[index] or 0
-        indices[index] = amount + 1
-    end
-
-    research(indices)
-end
-
-function receiveResult(result)
-    results:clear();
-
-    local item = InventorySelectionItem()
-    item.item = result
-
-    results:add(item)
-    onShowWindow()
-end
-
-function transform(items)
-
-    local transformToKey
-
-    if items[1].itemType == InventoryItemType.SystemUpgrade
-    and items[2].itemType == InventoryItemType.SystemUpgrade
-    and items[3].itemType == InventoryItemType.SystemUpgrade
-    and items[1].rarity.value == RarityType.Legendary
-    and items[2].rarity.value == RarityType.Legendary
-    and items[3].rarity.value == RarityType.Legendary then
-
-        local inputKeys = 0
-        for _, item in pairs(items) do
-            if string.match(item.script, "systems/teleporterkey") then
-                inputKeys = inputKeys + 1
-            end
-        end
-
-        if inputKeys <= 1 then
-            transformToKey = true
-        end
-    end
-
-    local result
-
-    if transformToKey then
-        result = SystemUpgradeTemplate("data/scripts/systems/teleporterkey2.lua", Rarity(RarityType.Legendary), random():createSeed())
-    else
-        local rarities = getRarityProbabilities(items)
-        local types = getTypeProbabilities(items, "type")
-
-        local itemType = selectByWeight(random(), types)
-        local rarity = Rarity(selectByWeight(random(), rarities))
-
-
-        if itemType == InventoryItemType.Turret
-        or itemType == InventoryItemType.TurretTemplate then
-
-            local weaponTypes = getWeaponProbabilities(items)
-            local materials = getWeaponMaterials(items)
-            local autoFires = getAutoFires(items)
-
-            local weaponType = selectByWeight(random(), weaponTypes)
-            local material = Material(selectByWeight(random(), materials))
-            local autoFire = selectByWeight(random(), autoFires)
-
-            local x, y = Sector():getCoordinates()
-            result = TurretGenerator.generate(x, y, - 5, rarity, weaponType, material)
-
-            if itemType == InventoryItemType.Turret then
-                result = InventoryTurret(result)
+            if not autoResearch_playerLocks[playerIndex] then
+                break -- interrupted by player
             end
 
-            result.automatic = autoFire or false
+            itemsLength = 0
+            if not skipRarities[i][RarityType.Petty] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Petty, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Petty] = true -- skip this rarity in the future
+                end
+            end
+            if itemsLength < minAmount and not skipRarities[i][RarityType.Common] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Common, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Common] = true
+                end
+            end
+            if itemsLength < minAmount and maxRarity >= RarityType.Uncommon and not skipRarities[i][RarityType.Uncommon] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Uncommon, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Uncommon] = true
+                end
+            end
+            if itemsLength < minAmount and maxRarity >= RarityType.Rare and not skipRarities[i][RarityType.Rare] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Rare, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Rare] = true
+                end
+            end
+            if itemsLength < minAmount and maxRarity >= RarityType.Exceptional and not skipRarities[i][RarityType.Exceptional] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Exceptional, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Exceptional] = true
+                end
+            end
+            if itemsLength < minAmount and maxRarity >= RarityType.Exotic and not skipRarities[i][RarityType.Exotic] then
+                items, itemIndices = ResearchStation.autoResearch_getIndices(inventory, RarityType.Exotic, minAmount, maxAmount, itemType, selectedTypes, materialType, separateValue)
+                itemsLength = #items
+                if itemsLength < minAmount then
+                    skipRarities[i][RarityType.Exotic] = true
+                end
+            end
 
-        elseif itemType == InventoryItemType.SystemUpgrade then
-            local scripts = getSystemProbabilities(items)
-
-            local script = selectByWeight(random(), scripts)
-
-            result = SystemUpgradeTemplate(script, rarity, random():createSeed())
+            if itemsLength >= minAmount then
+                isResearchFine, researchCode = ResearchStation.research(itemIndices) -- thanks for Research Station Lib there is no need for double checks
+                if not isResearchFine then break end -- something went wrong
+            else
+                break
+            end
+            j = j + 1
         end
     end
+    ::autoResearch_finish::
+    callingPlayer = nil
+    if AutoResearchLog.isDebug then
+        timer:stop()
+        AutoResearchLog:Debug("Iteration took %s", timer.secondsStr)
+    end
+    local endResearch
+    if isResearchFine == false then -- something went wrong (didn't pass one of the checks)
+        AutoResearchLog:Debug("Player %i - End of research (exited with code %i)", playerIndex, researchCode)
+        endResearch = true
+    elseif itemsLength < minAmount then -- nothing more to research, end auto research
+        AutoResearchLog:Debug("Player %i - End of research", playerIndex)
+        endResearch = true
+    elseif autoResearch_playerLocks[playerIndex] and autoResearch_playerLocks[playerIndex] == 2 then -- interrupted by player
+        AutoResearchLog:Debug("Player %i - End of research (stopped by player)", playerIndex)
+        endResearch = true
+    end
 
-    return result
+    if not endResearch then -- continue after a delay
+        local result = deferredCallback(AutoResearchConfig.DelayInterval, "autoResearch_deferred", playerIndex, inventory, separateAutoTurrets, maxRarity, minAmount, maxAmount, itemType, selectedTypes, materialType, skipRarities)
+        if result then return end
+        AutoResearchLog:Error("Player %i - Failed to defer research", playerIndex)
+    end
+
+    -- end research
+    autoResearch_playerLocks[playerIndex] = nil -- unlock
+    invokeClientFunction(player, "autoResearch_autoResearchComplete")
+end
+
+if not ResearchStation.updateServer then -- fixing deferredCallback
+    function ResearchStation.updateServer() end
+end
+
+
 end

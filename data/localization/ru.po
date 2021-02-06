@@ -1,0 +1,22 @@
+# ========== data\scripts\entity\merchants\researchstation.lua ==========
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Min amount"
+msgstr "Мин. кол-во"
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Max amount"
+msgstr "Макс. кол-во"
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Research Auto/Non-auto turrets separately"
+msgstr "Исследовать Авто/Не-авто турели отдельно"
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Auto Research"
+msgstr "Авто-изучение"
+
+#: data\scripts\entity\merchants\researchstation.lua:
+msgid "Stop Auto Research"
+msgstr "Остановить авто-изучение"
+
+
